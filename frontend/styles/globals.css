@@ -1,0 +1,491 @@
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  background-color: #f5f5f5;
+  color: #1f2937;
+}
+
+.container {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 2rem;
+}
+
+.btn {
+  padding: 0.5rem 1rem;
+  border-radius: 0.25rem;
+  border: none;
+  cursor: pointer;
+  font-weight: 500;
+  transition: all 0.2s ease;
+}
+
+.btn-primary {
+  background-color: #0070f3;
+  color: white;
+}
+
+.btn-primary:hover {
+  background-color: #0051b3;
+}
+
+.btn-danger {
+  background-color: #dc3545;
+  color: white;
+}
+
+.btn-danger:hover {
+  background-color: #c82333;
+}
+
+.input {
+  width: 100%;
+  padding: 0.75rem;
+  border: 1px solid #d1d5db;
+  border-radius: 0.5rem;
+  font-size: 1rem;
+}
+
+.input:focus {
+  outline: none;
+  border-color: #2563eb;
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.2);
+}
+
+.card {
+  background-color: white;
+  border-radius: 0.75rem;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+  overflow: hidden;
+  transition: box-shadow 0.2s;
+}
+
+.card:hover {
+  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+}
+
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+}
+
+.modal-content {
+  background-color: white;
+  border-radius: 0.75rem;
+  padding: 2rem;
+  width: 100%;
+  max-width: 32rem;
+}
+
+.modal-header {
+  margin-bottom: 1.5rem;
+}
+
+.modal-body {
+  margin-bottom: 2rem;
+}
+
+.modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 1rem;
+}
+
+.form-group {
+  margin-bottom: 1.5rem;
+}
+
+.form-label {
+  display: block;
+  margin-bottom: 0.5rem;
+  font-weight: 500;
+  color: #374151;
+}
+
+.grid {
+  display: grid;
+  gap: 1.5rem;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+}
+
+.error-message {
+  background-color: #fee2e2;
+  color: #dc2626;
+  padding: 1rem;
+  border-radius: 0.25rem;
+  margin: 1rem 0;
+}
+
+.loading {
+  text-align: center;
+  padding: 2rem;
+  color: #666;
+}
+
+.react-grid-item {
+  transition: all 200ms ease;
+  transition-property: left, top;
+}
+
+.react-grid-item.cssTransforms {
+  transition-property: transform;
+}
+
+.react-grid-item.resizing {
+  z-index: 1;
+  will-change: width, height;
+}
+
+.react-grid-item.react-draggable-dragging {
+  transition: none;
+  z-index: 3;
+  will-change: transform;
+}
+
+.react-grid-item.react-grid-placeholder {
+  background: #e8e8e8;
+  opacity: 0.2;
+  transition-duration: 100ms;
+  z-index: 2;
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+  -o-user-select: none;
+  user-select: none;
+}
+
+h2, h3 {
+  margin: 0;
+}
+
+.dashboard-page {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 2rem;
+}
+
+.dashboard-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 2rem;
+}
+
+.widgets-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(500px, 1fr));
+    gap: 1.5rem;
+}
+
+.widget-card {
+    background: white;
+    border-radius: 0.5rem;
+    padding: 1.5rem;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.widget-card h3 {
+    margin-bottom: 1rem;
+}
+
+/* Стили для WatchlistManager */
+.watchlist-container {
+  padding: 2rem;
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+.watchlist-content {
+  margin-top: 2rem;
+}
+
+.available-coins h3 {
+  margin-bottom: 1.5rem;
+  color: #333;
+}
+
+.coins-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+  gap: 1.5rem;
+}
+
+.coin-card {
+  background: white;
+  border-radius: 0.5rem;
+  padding: 1.5rem;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.coin-card span {
+  font-weight: 500;
+  color: #333;
+}
+
+.add-btn {
+  background-color: #0070f3;
+  color: white;
+}
+
+.add-btn:hover {
+  background-color: #0051b3;
+}
+
+.remove-btn {
+  background-color: #dc3545;
+  color: white;
+}
+
+.remove-btn:hover {
+  background-color: #c82333;
+}
+
+.period-buttons {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin-bottom: 1rem;
+}
+
+.period-button {
+  padding: 7px 18px;
+  margin-right: 0;
+  border: 1.2px solid #e0e7ef;
+  border-radius: 7px;
+  background: #fff;
+  color: #222;
+  font-weight: 500;
+  font-size: 1rem;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border 0.15s;
+  outline: none;
+  position: relative;
+  letter-spacing: 0.01em;
+  box-shadow: none;
+}
+
+.period-button:not(:last-child) {
+  margin-right: 8px;
+}
+
+.period-button.active {
+  background: #0070f3;
+  color: #fff;
+  border: 1.2px solid #0070f3;
+}
+
+.period-button:hover:not(.active):not(:disabled) {
+  background: #f3f4f6;
+  color: #0070f3;
+  border: 1.2px solid #b3d4fc;
+}
+
+.period-button:active {
+  background: #e0e7ef;
+  color: #0051b3;
+}
+
+.period-button.disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  background: #f5f5f5;
+  color: #aaa;
+  border: 1.2px dashed #e0e7ef;
+}
+
+.date-input-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  margin-right: 1.2rem;
+}
+
+.date-input-group label {
+  font-size: 0.97rem;
+  color: #444;
+  margin-bottom: 0.2rem;
+  font-weight: 500;
+}
+
+.date-input-group input[type="date"] {
+  padding: 7px 12px;
+  border: 1.2px solid #e0e7ef;
+  border-radius: 7px;
+  background: #fff;
+  color: #222;
+  font-size: 1rem;
+  transition: border 0.15s, box-shadow 0.15s;
+  outline: none;
+}
+
+.date-input-group input[type="date"]:focus {
+  border: 1.2px solid #0070f3;
+  box-shadow: 0 0 0 2px rgba(0,112,243,0.08);
+}
+
+.navbar {
+  width: 100%;
+  background: #fff;
+  border-bottom: 1.5px solid #e0e7ef;
+  box-shadow: 0 2px 8px rgba(0,112,243,0.03);
+  padding: 0.5rem 0;
+  position: sticky;
+  top: 0;
+  z-index: 100;
+}
+
+.navbar-content {
+  max-width: 1200px;
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 2rem;
+}
+
+.navbar-logo {
+  font-size: 1.35rem;
+  font-weight: 700;
+  color: #0070f3;
+  letter-spacing: 0.03em;
+  text-decoration: none;
+  transition: color 0.15s;
+}
+
+.navbar-logo:hover {
+  color: #0051b3;
+}
+
+.navbar-links {
+  display: flex;
+  gap: 1.2rem;
+}
+
+.navbar-link {
+  color: #222;
+  font-weight: 500;
+  font-size: 1.05rem;
+  text-decoration: none;
+  padding: 6px 14px;
+  border-radius: 6px;
+  transition: background 0.15s, color 0.15s;
+}
+
+.navbar-link:hover, .navbar-link.active {
+  background: #f3f4f6;
+  color: #0070f3;
+}
+
+.auth-container {
+  min-height: 100vh;
+  background: #f5f7fa;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.auth-card {
+  background: #fff;
+  border-radius: 14px;
+  box-shadow: 0 4px 24px rgba(0,112,243,0.07), 0 1.5px 4px rgba(0,112,243,0.04);
+  padding: 2.5rem 2rem 2rem 2rem;
+  width: 100%;
+  max-width: 370px;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.auth-title {
+  font-size: 1.6rem;
+  font-weight: 700;
+  color: #0070f3;
+  text-align: center;
+  margin-bottom: 1.5rem;
+  letter-spacing: 0.01em;
+}
+
+.auth-form-group {
+  margin-bottom: 1.2rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.auth-label {
+  font-size: 1rem;
+  color: #444;
+  font-weight: 500;
+}
+
+.auth-input {
+  padding: 9px 14px;
+  border: 1.2px solid #e0e7ef;
+  border-radius: 7px;
+  background: #fff;
+  color: #222;
+  font-size: 1rem;
+  transition: border 0.15s, box-shadow 0.15s;
+  outline: none;
+}
+
+.auth-input:focus {
+  border: 1.2px solid #0070f3;
+  box-shadow: 0 0 0 2px rgba(0,112,243,0.08);
+}
+
+.auth-btn {
+  background: #0070f3;
+  color: #fff;
+  font-weight: 600;
+  border: none;
+  border-radius: 7px;
+  padding: 16px 32px;
+  font-size: 1.13rem;
+  cursor: pointer;
+  margin-top: 0.5rem;
+  transition: background 0.15s;
+}
+
+.auth-btn:hover {
+  background: #0051b3;
+}
+
+.auth-link {
+  color: #0070f3;
+  text-decoration: none;
+  font-weight: 500;
+  transition: color 0.15s;
+}
+
+.auth-link:hover {
+  color: #0051b3;
+}
+
+.auth-error {
+  background: #fee2e2;
+  color: #dc2626;
+  padding: 0.7rem 1rem;
+  border-radius: 0.5rem;
+  margin-bottom: 1rem;
+  text-align: center;
+  font-size: 1rem;
+} 

@@ -1,0 +1,56 @@
+# Secrets and credentials
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+*.pem
+*.key
+*.p8
+*.p12
+
+# API keys and secrets
+**/apikey.js
+**/secrets.js
+**/config.js
+*credentials*
+
+# Authentication
+.htpasswd
+.htaccess
+
+# Security certificates
+*.crt
+*.cer
+*.ca-bundle
+
+# Log files
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Cache directories
+.cache/
+.npm/
+.yarn/
+.parcel-cache/
+
+# Dependencies
+node_modules/
+jspm_packages/
+bower_components/
+
+# Build outputs
+dist/
+build/
+out/
+.output/
+
+# IDE specific files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store 
