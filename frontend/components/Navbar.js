@@ -45,6 +45,12 @@ const Navbar = () => {
                     ))}
                     {isAuth ? (
                         <>
+                            <Link 
+                                href="/profile" 
+                                className={`navbar-link ${currentPath === '/profile' ? 'active' : ''}`}
+                            >
+                                Личный кабинет
+                            </Link>
                             <button className="navbar-link navbar-logout-btn" onClick={() => setShowLogoutModal(true)}>
                                 Выйти
                             </button>
