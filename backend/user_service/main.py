@@ -41,14 +41,26 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 class UserCreate(BaseModel):
     email: EmailStr
     password: str
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
 
 class User(BaseModel):
     email: str
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
     watchlist: List[str] = []
     dashboards: List[dict] = []
 
 class UserInDB(User):
     hashed_password: str
+
+class UserUpdate(BaseModel):
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
+
+class PasswordChange(BaseModel):
+    current_password: str
+    new_password: str
 
 class Token(BaseModel):
     access_token: str
@@ -144,7 +156,9 @@ async def register(user_data: UserCreate):
         "email": user_data.email,
         "hashed_password": hashed_password,
         "watchlist": [],
-        "dashboards": []
+        "dashboards": [],
+        "first_name": user_data.first_name,
+        "last_name": user_data.last_name
     }
     await db.users.insert_one(user_dict)
     print(f"User registered successfully: {user_data.email}")
@@ -244,6 +258,63 @@ async def delete_dashboard(dashboard_id: str, current_user: User = Depends(get_c
         {"$pull": {"dashboards": {"id": dashboard_id}}}
     )
     return {"message": "Dashboard deleted"}
+
+@app.get("/profile", response_model=User)
+async def get_profile(current_user: User = Depends(get_current_user)):
+    return current_user
+
+@app.put("/profile", response_model=User)
+async def update_profile(user_update: UserUpdate, current_user: User = Depends(get_current_user)):
+    try:
+        # Пробуем использовать model_dump (Pydantic v2)
+        update_data = user_update.model_dump(exclude_unset=True)
+    except AttributeError:
+        # Если не получилось, используем dict (Pydantic v1)
+        update_data = user_update.dict(exclude_unset=True)
+    
+    if not update_data:
+        raise HTTPException(status_code=400, detail="No fields to update")
+    
+    await db.users.update_one(
+        {"email": current_user.email},
+        {"$set": update_data}
+    )
+    
+    updated_user = await get_user(current_user.email)
+    return updated_user
+
+@app.post("/change-password")
+async def change_password(password_data: PasswordChange, current_user: UserInDB = Depends(get_current_user)):
+    # Проверяем текущий пароль
+    if not pwd_context.verify(password_data.current_password, current_user.hashed_password):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Неверный текущий пароль"
+        )
+    
+    # Хешируем новый пароль
+    hashed_password = pwd_context.hash(password_data.new_password)
+    
+    # Обновляем пароль в базе данных
+    await db.users.update_one(
+        {"email": current_user.email},
+        {"$set": {"hashed_password": hashed_password}}
+    )
+    
+    return {"message": "Пароль успешно изменен"}
+
+@app.delete("/account")
+async def delete_account(current_user: UserInDB = Depends(get_current_user)):
+    # Удаляем пользователя из базы данных
+    result = await db.users.delete_one({"email": current_user.email})
+    
+    if result.deleted_count == 0:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Пользователь не найден"
+        )
+    
+    return {"message": "Аккаунт успешно удален"}
 
 @app.post("/logout")
 async def logout():
