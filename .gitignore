@@ -73,11 +73,13 @@ target/
 *.o
 *.a
 *.so
-*.dll
-*.dylib
-*.exe
-*.class
-*.jar
+*.d
+
+# Next.js
+.next/
+.vercel
+next-env.d.ts
+.swc/
 
 # Temporary files
 *.tmp
