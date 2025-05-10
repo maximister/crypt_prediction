@@ -185,7 +185,6 @@ async def get_current_user(token: str = Depends(oauth2_scheme)):
     if user is None:
         raise credentials_exception
     
-    # Проверяем, активен ли аккаунт
     if hasattr(user, 'is_active') and not user.is_active:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -228,8 +227,8 @@ async def register(user_data: UserCreate):
         "alerts": [],
         "first_name": user_data.first_name,
         "last_name": user_data.last_name,
-        "role": user_data.role,  # Сохраняем роль пользователя
-        "is_active": True  # Аккаунт активен
+        "role": user_data.role,
+        "is_active": True
     }
     await db.users.insert_one(user_dict)
     print(f"User registered successfully: {user_data.email}")
@@ -250,7 +249,6 @@ async def login(login_data: LoginRequest):
             detail="Неверный email или пароль"
         )
     
-    # Проверяем, активен ли аккаунт пользователя
     if hasattr(user, 'is_active') and not user.is_active:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -368,10 +366,8 @@ async def get_profile(current_user: User = Depends(get_current_user)):
 @app.put("/profile", response_model=User)
 async def update_profile(user_update: UserUpdate, current_user: User = Depends(get_current_user)):
     try:
-        # Пробуем использовать model_dump (Pydantic v2)
         update_data = user_update.model_dump(exclude_unset=True)
     except AttributeError:
-        # Если не получилось, используем dict (Pydantic v1)
         update_data = user_update.dict(exclude_unset=True)
     
     if not update_data:
@@ -387,17 +383,14 @@ async def update_profile(user_update: UserUpdate, current_user: User = Depends(g
 
 @app.post("/change-password")
 async def change_password(password_data: PasswordChange, current_user: UserInDB = Depends(get_current_user)):
-    # Проверяем текущий пароль
     if not pwd_context.verify(password_data.current_password, current_user.hashed_password):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Неверный текущий пароль"
         )
     
-    # Хешируем новый пароль
     hashed_password = pwd_context.hash(password_data.new_password)
     
-    # Обновляем пароль в базе данных
     await db.users.update_one(
         {"email": current_user.email},
         {"$set": {"hashed_password": hashed_password}}
@@ -407,7 +400,6 @@ async def change_password(password_data: PasswordChange, current_user: UserInDB 
 
 @app.delete("/account")
 async def delete_account(current_user: UserInDB = Depends(get_current_user)):
-    # Удаляем пользователя из базы данных
     result = await db.users.delete_one({"email": current_user.email})
     
     if result.deleted_count == 0:
@@ -420,7 +412,6 @@ async def delete_account(current_user: UserInDB = Depends(get_current_user)):
 
 @app.post("/logout")
 async def logout():
-    # Для JWT обычно logout реализуется на фронте (удаление токена). Здесь можно добавить blacklist, если потребуется.
     return {"message": "Logged out successfully"}
 
 @app.get("/alerts", response_model=List[PriceAlertResponse])
@@ -433,18 +424,15 @@ async def get_alerts(current_user: User = Depends(get_current_user)):
 @app.post("/alerts", response_model=PriceAlertResponse)
 async def create_alert(alert: PriceAlert, current_user: User = Depends(get_current_user)):
     """Создать новое уведомление о цене"""
-    # Проверяем, что монета в списке избранного
     if alert.coin_id not in current_user.watchlist:
         raise HTTPException(status_code=400, detail="Монета должна быть в списке избранного")
     
-    # Проверяем корректность данных
     if alert.type == "price" and alert.price is None:
         raise HTTPException(status_code=400, detail="Для уведомления по цене необходимо указать цену")
     
     if alert.type == "percentage" and alert.percentage is None:
         raise HTTPException(status_code=400, detail="Для уведомления по проценту необходимо указать процент")
     
-    # Создаем уведомление
     new_alert = {
         "id": str(uuid.uuid4()),
         "coin_id": alert.coin_id,
@@ -455,7 +443,6 @@ async def create_alert(alert: PriceAlert, current_user: User = Depends(get_curre
         "created_at": datetime.now()
     }
     
-    # Добавляем в базу данных
     await db.users.update_one(
         {"email": current_user.email},
         {"$push": {"alerts": new_alert}}
@@ -476,7 +463,6 @@ async def delete_alert(alert_id: str, current_user: User = Depends(get_current_u
     
     return {"message": "Уведомление удалено"}
 
-# API эндпоинты для работы с криптовалютами
 
 @app.get("/cryptocurrencies", response_model=List[CryptoCurrency])
 async def get_cryptocurrencies(active_only: bool = True):

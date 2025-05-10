@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { updateWidgetSettings } from '../store/widgetSettingsSlice';
 import {
@@ -10,12 +10,14 @@ import {
     Title,
     Tooltip,
     Legend,
-    TimeScale
+    TimeScale,
+    Filler
 } from 'chart.js';
 import { Line } from 'react-chartjs-2';
 import 'chartjs-adapter-date-fns';
 import { ru } from 'date-fns/locale';
-import { format, subDays, startOfDay, endOfDay } from 'date-fns';
+import { format, subDays, startOfDay, endOfDay, parseISO, isValid } from 'date-fns';
+import cryptoDataService from '../services/CryptoDataService';
 
 ChartJS.register(
     CategoryScale,
@@ -25,7 +27,8 @@ ChartJS.register(
     Title,
     Tooltip,
     Legend,
-    TimeScale
+    TimeScale,
+    Filler
 );
 
 const PERIODS = [
@@ -215,41 +218,29 @@ const PriceChart = ({
             setError(null);
             
             const isRealData = chartType === 'real';
-            const baseUrl = isRealData ? '/api/historical' : '/api/predict';
             
-            let url;
-            if (customDates && startDate && endDate) {
-                const start = startOfDay(new Date(startDate));
-                const end = endOfDay(new Date(endDate));
-                if (start > end) {
-                    throw new Error('Некорректный период дат');
-                }
-                url = `${baseUrl}/by-dates?coin_id=${coin}&start=${format(start, 'yyyy-MM-dd')}&end=${format(end, 'yyyy-MM-dd')}&is_prediction=${!isRealData}`;
+            let data;
+            if (isRealData) {
+                // Получаем исторические данные
+                const days = periodToDays(period);
+                data = await cryptoDataService.getHistoricalData(coin, days);
             } else {
-                url = `${baseUrl}/${coin}/${period}?is_prediction=${!isRealData}`;
+                // Получаем прогнозные данные
+                const days = periodToDays(period);
+                data = await cryptoDataService.getForecast(coin, days);
             }
             
-            console.log('[CoinGecko][REQUEST]', url);
-            
-            const response = await fetch(url);
-            
-            console.log('[CoinGecko][RESPONSE STATUS]', response.status);
-            
-            if (!response.ok) {
-                const errorData = await response.json().catch(() => null);
-                console.log('[CoinGecko][RESPONSE ERROR]', errorData);
-                throw new Error(errorData?.detail || `Ошибка загрузки данных: ${response.status}`);
+            if (!data || (!data.prices && !data.forecast && !data.predictions)) {
+                throw new Error('Нет данных за указанный период');
             }
-            
-            const data = await response.json();
-            console.log('[CoinGecko][RESPONSE DATA]', data);
-            
+
+            // Преобразуем данные в формат для графика
             let priceData;
             if (isRealData) {
                 priceData = data.prices;
             } else {
                 // Для прогнозов преобразуем данные в нужный формат
-                priceData = data.predictions || data.prices || [];
+                priceData = data.predictions || data.forecast || [];
                 if (!Array.isArray(priceData)) {
                     // Если данные пришли в другом формате, преобразуем их
                     priceData = Object.entries(priceData).map(([timestamp, value]) => [
@@ -262,8 +253,6 @@ const PriceChart = ({
             if (!priceData || priceData.length === 0) {
                 throw new Error('Нет данных за указанный период');
             }
-
-            console.log('Processed price data:', priceData);
 
             const chartData = {
                 labels: priceData.map(item => {
@@ -281,7 +270,6 @@ const PriceChart = ({
                 ]
             };
 
-            console.log('Chart data:', chartData);
             setChartData(chartData);
         } catch (err) {
             console.error('Ошибка при загрузке данных:', err);
@@ -289,6 +277,20 @@ const PriceChart = ({
             setChartData(null);
         } finally {
             setLoading(false);
+        }
+    };
+
+    // Вспомогательная функция для преобразования периода в количество дней
+    const periodToDays = (period) => {
+        switch(period) {
+            case '1d': return '1d';
+            case '7d': return '7d';
+            case '30d': return '30d';
+            case '90d': return '90d';
+            case '180d': return '180d';
+            case '365d': return '365d';
+            case 'max': return 'max';
+            default: return '7d';
         }
     };
 

@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import CryptoCard from './CryptoCard';
+import websocketService from '../services/WebSocketService';
+import cryptoDataService from '../services/CryptoDataService';
 
 export default function WatchlistDashboard() {
   const [watchlist, setWatchlist] = useState([]);
@@ -11,6 +13,7 @@ export default function WatchlistDashboard() {
   const [prices, setPrices] = useState({});
   const [priceChanges, setPriceChanges] = useState({});
   const [currenciesInfo, setCurrenciesInfo] = useState({});
+  const [forecasts, setForecasts] = useState({});
   const router = useRouter();
 
   useEffect(() => {
@@ -21,79 +24,33 @@ export default function WatchlistDashboard() {
   useEffect(() => {
     if (watchlist.length === 0) return;
 
-    let ws = null;
-    let reconnectInterval = null;
-    
-    const connectWebSocket = () => {
-      try {
-        // Используем прямое соединение с WebSocket
-        const wsUrl = 'ws://localhost:8001/ws/updates';
-        
-        ws = new WebSocket(wsUrl);
-        
-        ws.onopen = () => {
-          console.log('WebSocket connected');
-          if (reconnectInterval) {
-            clearInterval(reconnectInterval);
-            reconnectInterval = null;
-          }
-        };
-        
-        ws.onmessage = (event) => {
-          try {
-            const data = JSON.parse(event.data);
-            if (data.type === 'price') {
-              // Обновляем цены
-              setPrices(prevPrices => {
-                const newPrices = { ...prevPrices };
-                
-                // Вычисляем изменения цен
-                const newChanges = { ...priceChanges };
-                
-                Object.keys(data.payload).forEach(coin => {
-                  if (prevPrices[coin]) {
-                    const change = ((data.payload[coin] - prevPrices[coin]) / prevPrices[coin]) * 100;
-                    newChanges[coin] = change;
-                  }
-                  newPrices[coin] = data.payload[coin];
-                });
-                
-                setPriceChanges(newChanges);
-                return newPrices;
-              });
+    // Подписываемся на обновления цен всех монет в списке избранного
+    const unsubscribers = watchlist.map(coin => {
+      return websocketService.subscribeToPrice(coin, (price) => {
+        setPrices(prevPrices => {
+          // Обновляем цену конкретной монеты
+          const newPrices = { ...prevPrices };
+          const oldPrice = newPrices[coin] || 0;
+          newPrices[coin] = price;
+          
+          // Вычисляем изменение цены
+          setPriceChanges(prevChanges => {
+            const newChanges = { ...prevChanges };
+            if (oldPrice > 0) {
+              const change = ((price - oldPrice) / oldPrice) * 100;
+              newChanges[coin] = change;
             }
-          } catch (err) {
-            console.error('Error parsing WebSocket message:', err);
-          }
-        };
-        
-        ws.onerror = (error) => {
-          console.error('WebSocket error:', error);
-        };
-        
-        ws.onclose = () => {
-          console.log('WebSocket connection closed. Trying to reconnect...');
-          // Пытаемся переподключиться через интервал
-          if (reconnectInterval === null) {
-            reconnectInterval = setInterval(() => {
-              connectWebSocket();
-            }, 5000); // Пытаемся подключиться каждые 5 секунд
-          }
-        };
-      } catch (err) {
-        console.error('Error setting up WebSocket:', err);
-      }
-    };
+            return newChanges;
+          });
+          
+          return newPrices;
+        });
+      });
+    });
     
-    connectWebSocket();
-    
+    // Отписываемся при размонтировании компонента
     return () => {
-      if (ws) {
-        ws.close();
-      }
-      if (reconnectInterval) {
-        clearInterval(reconnectInterval);
-      }
+      unsubscribers.forEach(unsubscribe => unsubscribe());
     };
   }, [watchlist]);
 
@@ -125,8 +82,7 @@ export default function WatchlistDashboard() {
       
       // Загружаем информацию о криптовалютах
       if (data && data.length > 0) {
-        fetchCurrenciesInfo(data);
-        fetchPrices(data);
+        await loadCryptoData(data);
       }
     } catch (err) {
       setError('Ошибка загрузки списка избранного');
@@ -136,96 +92,29 @@ export default function WatchlistDashboard() {
     }
   };
 
-  const fetchCurrenciesInfo = async (coins) => {
+  const loadCryptoData = async (coins) => {
     try {
-      const infoPromises = coins.map(coin => 
-        fetch(`http://localhost:8000/cryptocurrencies/${coin}`)
-          .then(res => {
-            if (!res.ok) {
-              console.log(`Не удалось получить информацию о ${coin}, используем базовые данные`);
-              return { 
-                id: coin, 
-                name: coin.charAt(0).toUpperCase() + coin.slice(1), 
-                symbol: coin.substring(0, 3).toUpperCase() 
-              };
-            }
-            return res.json();
-          })
-          .catch(() => {
-            console.log(`Ошибка при получении информации для ${coin}, используем базовые данные`);
-            return { 
-              id: coin, 
-              name: coin.charAt(0).toUpperCase() + coin.slice(1), 
-              symbol: coin.substring(0, 3).toUpperCase() 
-            };
-          })
-      );
+      // Загружаем все данные о монетах параллельно
+      const [infoData, priceData, forecastData] = await Promise.all([
+        cryptoDataService.getCurrenciesInfo(coins),
+        cryptoDataService.getPrices(coins),
+        cryptoDataService.getForecasts(coins, 7)
+      ]);
       
-      const results = await Promise.all(infoPromises);
+      setCurrenciesInfo(infoData);
+      setPrices(priceData);
+      setForecasts(forecastData);
       
-      const newCurrenciesInfo = {};
-      results.forEach(result => {
-        if (result && result.id) {
-          newCurrenciesInfo[result.id] = result;
-        }
-      });
-      
-      setCurrenciesInfo(newCurrenciesInfo);
-    } catch (err) {
-      console.error('Error fetching currencies info:', err);
-    }
-  };
-
-  const fetchPrices = async (coins) => {
-    try {
-      const pricePromises = coins.map(coin => 
-        fetch(`http://localhost:8001/api/price/${coin}`)
-          .then(res => {
-            if (!res.ok) {
-              // Если API недоступен, генерируем фейковые данные
-              return { coin, price: Math.random() * 50000 + 1000 };
-            }
-            return res.json().then(data => ({ coin, price: data.price }));
-          })
-          .catch(() => {
-            console.log(`Ошибка при получении данных для ${coin}, используем случайные данные`);
-            // Если произошла ошибка, генерируем фейковые данные
-            return { coin, price: Math.random() * 50000 + 1000 };
-          })
-      );
-      
-      const results = await Promise.all(pricePromises);
-      
-      const newPrices = {};
-      results.forEach(result => {
-        if (result && result.price !== null) {
-          newPrices[result.coin] = result.price;
-        }
-      });
-      
-      setPrices(newPrices);
-      
-      // Генерируем случайные изменения цен для демонстрации
-      const newPriceChanges = {};
+      // Генерируем начальные значения изменений цен
+      const initialPriceChanges = {};
       coins.forEach(coin => {
-        newPriceChanges[coin] = (Math.random() * 10) - 5; // случайное изменение от -5% до +5%
+        initialPriceChanges[coin] = (Math.random() * 10) - 5; // случайное изменение от -5% до +5%
       });
-      setPriceChanges(newPriceChanges);
+      setPriceChanges(initialPriceChanges);
       
     } catch (err) {
-      console.error('Error fetching prices:', err);
-      
-      // В случае общей ошибки, генерируем фейковые данные для всех монет
-      const newPrices = {};
-      const newPriceChanges = {};
-      
-      coins.forEach(coin => {
-        newPrices[coin] = Math.random() * 50000 + 1000;
-        newPriceChanges[coin] = (Math.random() * 10) - 5;
-      });
-      
-      setPrices(newPrices);
-      setPriceChanges(newPriceChanges);
+      console.error('Ошибка загрузки данных:', err);
+      setError('Не удалось загрузить данные о криптовалютах');
     }
   };
 
@@ -276,25 +165,30 @@ export default function WatchlistDashboard() {
     if (!watchlist.length) return [];
     
     return [...watchlist].sort((a, b) => {
+      // Используем информацию о криптовалютах для сортировки
+      const nameA = currenciesInfo[a]?.name || a;
+      const nameB = currenciesInfo[b]?.name || b;
+      
+      const priceA = prices[a] || 0;
+      const priceB = prices[b] || 0;
+      
+      const changeA = priceChanges[a] || 0;
+      const changeB = priceChanges[b] || 0;
+      
       if (sortBy === 'name') {
-        const nameA = currenciesInfo[a]?.name || a;
-        const nameB = currenciesInfo[b]?.name || b;
         return sortOrder === 'asc' 
           ? nameA.localeCompare(nameB) 
           : nameB.localeCompare(nameA);
       } else if (sortBy === 'price') {
-        const priceA = prices[a] || 0;
-        const priceB = prices[b] || 0;
         return sortOrder === 'asc' 
           ? priceA - priceB 
           : priceB - priceA;
       } else if (sortBy === 'change') {
-        const changeA = priceChanges[a] || 0;
-        const changeB = priceChanges[b] || 0;
         return sortOrder === 'asc' 
           ? changeA - changeB 
           : changeB - changeA;
       }
+      
       return 0;
     });
   };
@@ -386,9 +280,14 @@ export default function WatchlistDashboard() {
         {getSortedWatchlist().map(coin => (
           <div key={coin} className="crypto-card-wrapper" onClick={() => viewCryptoDetails(coin)}>
             <div className="card-highlight"></div>
-            <CryptoCard 
-              currency={coin} 
-              onRemove={() => removeFromWatchlist(coin)} 
+            <CryptoCard
+              currency={coin}
+              price={prices[coin]}
+              forecast={forecasts[coin]}
+              currencyInfo={currenciesInfo[coin]}
+              onRemove={removeFromWatchlist}
+              onClick={() => viewCryptoDetails(coin)}
+              staticMode={true}
             />
             {priceChanges[coin] && (
               <div className={`price-change ${priceChanges[coin] > 0 ? 'positive' : 'negative'}`}>

@@ -19,7 +19,6 @@ logger = logging.getLogger(__name__)
 class CoinGeckoService:
     def __init__(self):
         self.api_key = os.getenv("COINGECKO_API_KEY")
-        # Всегда используем обычный URL, так как у нас демо-ключ
         self.base_url = "https://api.coingecko.com/api/v3"
         if not self.api_key:
             logger.warning("COINGECKO_API_KEY не установлен, будут использоваться ограничения бесплатного API")
@@ -85,7 +84,7 @@ class CoinGeckoService:
             await self._ensure_session()
             headers = {}
             if self.api_key:
-                headers["x-cg-pro-api-key"] = self.api_key
+                headers["x-cg-api-key"] = self.api_key
 
             url = f"{self.base_url}/simple/price"
             params = {
@@ -115,7 +114,7 @@ class CoinGeckoService:
             await self._ensure_session()
             headers = {}
             if self.api_key:
-                headers["x-cg-pro-api-key"] = self.api_key
+                headers["x-cg-api-key"] = self.api_key
 
             url = f"{self.base_url}/coins/{coin_id}/market_chart"
             params = {
@@ -146,7 +145,7 @@ class CoinGeckoService:
             await self._ensure_session()
             headers = {}
             if self.api_key:
-                headers["x-cg-pro-api-key"] = self.api_key
+                headers["x-cg-api-key"] = self.api_key
 
             url = f"{self.base_url}/coins/{coin_id}/market_chart"
             params = {

@@ -10,6 +10,8 @@ import {
   Tooltip,
   Legend
 } from 'chart.js';
+import websocketService from '../services/WebSocketService';
+import cryptoDataService from '../services/CryptoDataService';
 
 ChartJS.register(
   CategoryScale,
@@ -21,111 +23,68 @@ ChartJS.register(
   Legend
 );
 
-export default function CryptoCard({ currency, onRemove }) {
-  const [price, setPrice] = useState(null);
-  const [forecast, setForecast] = useState(null);
+export default function CryptoCard({ 
+  currency, 
+  onRemove, 
+  onClick,
+  // Пропсы для статического режима
+  staticMode = false,
+  price: initialPrice = null,
+  forecast: initialForecast = null,
+  currencyInfo: initialCurrencyInfo = null
+}) {
+  const [price, setPrice] = useState(initialPrice);
+  const [forecast, setForecast] = useState(initialForecast);
   const [error, setError] = useState(null);
-  const [currencyInfo, setCurrencyInfo] = useState(null);
+  const [currencyInfo, setCurrencyInfo] = useState(initialCurrencyInfo);
+  const [loading, setLoading] = useState(!staticMode);
 
   useEffect(() => {
-    fetchCurrencyInfo();
-    fetchData();
+    // Обновляем состояние, если пропсы изменились
+    if (staticMode) {
+      if (initialPrice !== null) setPrice(initialPrice);
+      if (initialForecast !== null) setForecast(initialForecast);
+      if (initialCurrencyInfo !== null) setCurrencyInfo(initialCurrencyInfo);
+    }
+  }, [staticMode, initialPrice, initialForecast, initialCurrencyInfo]);
+
+  useEffect(() => {
+    // Не выполняем запросы и не подключаемся к WebSocket в статическом режиме
+    if (staticMode) return;
     
-    // Пробуем подключиться к WebSocket только если он доступен
-    let ws;
-    try {
-      ws = new WebSocket('ws://localhost:8001/ws/updates');
-      
-      ws.onopen = () => {
-        console.log('WebSocket соединение установлено');
-      };
-      
-      ws.onmessage = (event) => {
-        try {
-          const data = JSON.parse(event.data);
-          if (data.type === 'price' && data.payload[currency]) {
-            setPrice(data.payload[currency]);
-          }
-        } catch (err) {
-          console.error('Ошибка при обработке сообщения WebSocket:', err);
-        }
-      };
-      
-      ws.onerror = (error) => {
-        console.error('Ошибка WebSocket:', error);
-      };
-      
-      ws.onclose = () => {
-        console.log('WebSocket соединение закрыто');
-      };
-    } catch (err) {
-      console.error('Не удалось установить WebSocket соединение:', err);
-    }
-
+    // Загружаем данные
+    loadData();
+    
+    // Подписываемся на обновления цен через WebSocket
+    const unsubscribe = websocketService.subscribeToPrice(currency, (newPrice) => {
+      setPrice(newPrice);
+    });
+    
+    // Отписываемся при размонтировании компонента
     return () => {
-      if (ws) {
-        ws.close();
-      }
+      unsubscribe();
     };
-  }, [currency]);
+  }, [currency, staticMode]);
 
-  const fetchCurrencyInfo = async () => {
+  const loadData = async () => {
+    setLoading(true);
     try {
-      const response = await fetch(`http://localhost:8000/cryptocurrencies/${currency}`);
+      // Загружаем все данные параллельно
+      const [currencyInfoData, priceData, forecastData] = await Promise.all([
+        cryptoDataService.getCurrencyInfo(currency),
+        cryptoDataService.getPrice(currency),
+        cryptoDataService.getForecast(currency, 7)
+      ]);
       
-      if (response.ok) {
-        const data = await response.json();
-        setCurrencyInfo(data);
-      } else {
-        console.error(`Ошибка при загрузке информации о криптовалюте: ${response.status}`);
-      }
-    } catch (err) {
-      console.error('Ошибка при загрузке информации о криптовалюте:', err);
-    }
-  };
-
-  const fetchData = async () => {
-    try {
-      // Получаем текущую цену
-      const priceResponse = await fetch(`http://localhost:8001/api/price/${currency}`);
-      if (priceResponse.ok) {
-        const priceData = await priceResponse.json();
-        setPrice(priceData.price);
-      } else {
-        console.error(`Ошибка получения цены для ${currency}: ${priceResponse.status}`);
-        // Устанавливаем временную цену для демонстрации
-        setPrice(Math.random() * 50000 + 1000);
-      }
-
-      // Получаем прогноз
-      const forecastResponse = await fetch(`http://localhost:8001/api/predict/${currency}/7d`);
-      if (forecastResponse.ok) {
-        const forecastData = await forecastResponse.json();
-        setForecast(forecastData);
-      } else {
-        console.error(`Ошибка получения прогноза для ${currency}: ${forecastResponse.status}`);
-        // Создаем тестовые данные для демонстрации
-        const mockForecast = {
-          forecast: Array.from({ length: 7 }, (_, i) => ({
-            datetime: new Date(Date.now() + i * 86400000).toISOString(),
-            price: Math.random() * 10000 + 1000
-          }))
-        };
-        setForecast(mockForecast);
-      }
+      setCurrencyInfo(currencyInfoData);
+      setPrice(priceData);
+      setForecast(forecastData);
+      setError(null);
     } catch (err) {
       console.error('Ошибка при загрузке данных:', err);
       setError('Ошибка при загрузке данных');
-      
-      // Устанавливаем тестовые данные для демонстрации
-      setPrice(Math.random() * 50000 + 1000);
-      const mockForecast = {
-        forecast: Array.from({ length: 7 }, (_, i) => ({
-          datetime: new Date(Date.now() + i * 86400000).toISOString(),
-          price: Math.random() * 10000 + 1000
-        }))
-      };
-      setForecast(mockForecast);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -133,8 +92,18 @@ export default function CryptoCard({ currency, onRemove }) {
   const displayName = currencyInfo?.name || currency.charAt(0).toUpperCase() + currency.slice(1);
   const displaySymbol = currencyInfo?.symbol || currency.substring(0, 3).toUpperCase();
 
+  const handleCardClick = () => {
+    if (onClick) {
+      onClick(currency);
+    }
+  };
+
   return (
-    <div className="bg-white p-4 rounded-lg shadow-sm crypto-card">
+    <div 
+      className="bg-white p-4 rounded-lg shadow-sm crypto-card" 
+      onClick={handleCardClick}
+      style={onClick ? { cursor: 'pointer' } : {}}
+    >
       <div className="flex justify-between items-start mb-4">
         <div>
           <h2 className="text-lg font-medium">{displayName}</h2>
@@ -176,7 +145,7 @@ export default function CryptoCard({ currency, onRemove }) {
       )}
 
       <div className="text-2xl font-bold mb-4">
-        ${price?.toFixed(2) || 'Загрузка...'}
+        {loading ? 'Загрузка...' : price ? `$${price.toFixed(2)}` : 'Нет данных'}
       </div>
 
       {forecast && forecast.forecast && (

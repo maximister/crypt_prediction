@@ -12,6 +12,9 @@ import {
   Tooltip,
   Legend
 } from 'chart.js';
+import dynamic from 'next/dynamic';
+import cryptoDataService from '../../services/CryptoDataService';
+import websocketService from '../../services/WebSocketService';
 
 ChartJS.register(
   CategoryScale,
@@ -31,7 +34,7 @@ const PERIODS = [
   { label: '1 год', value: '365' }
 ];
 
-export default function CryptoDetails() {
+const CryptoDetails = () => {
   const router = useRouter();
   const { id } = router.query;
   
@@ -45,13 +48,26 @@ export default function CryptoDetails() {
   const [showPrediction, setShowPrediction] = useState(false);
   const [prediction, setPrediction] = useState(null);
   const [currencyInfo, setCurrencyInfo] = useState(null);
+  const [currentPrice, setCurrentPrice] = useState(null);
 
   useEffect(() => {
     if (!id) return;
     
     fetchCurrencyInfo();
     fetchCoinData();
+    fetchPriceHistory();
+    fetchPriceChanges();
+    fetchPrediction();
     checkWatchlistStatus();
+    
+    // Подписываемся на обновления цен через WebSocket
+    const unsubscribe = websocketService.subscribeToPrice(id, (newPrice) => {
+      setCurrentPrice(newPrice);
+    });
+    
+    return () => {
+      unsubscribe();
+    };
   }, [id]);
 
   useEffect(() => {
@@ -65,15 +81,11 @@ export default function CryptoDetails() {
   }, [id, showPrediction]);
 
   const fetchCurrencyInfo = async () => {
+    if (!id) return;
+    
     try {
-      const response = await fetch(`http://localhost:8000/cryptocurrencies/${id}`);
-      
-      if (response.ok) {
-        const data = await response.json();
-        setCurrencyInfo(data);
-      } else {
-        console.error(`Ошибка при загрузке информации о криптовалюте: ${response.status}`);
-      }
+      const data = await cryptoDataService.getCurrencyInfo(id);
+      setCurrencyInfo(data);
     } catch (err) {
       console.error('Ошибка при загрузке информации о криптовалюте:', err);
     }
@@ -166,7 +178,7 @@ export default function CryptoDetails() {
     try {
       setLoading(true);
       // Сначала пытаемся получить реальные данные
-      const response = await fetch(`http://localhost:8001/api/historical/${id}/${selectedPeriod}`);
+      const response = await fetch(`http://localhost:8001/api/historical/${id}/${selectedPeriod}d`);
       
       if (response.ok) {
         const data = await response.json();
@@ -300,118 +312,14 @@ export default function CryptoDetails() {
   };
 
   const fetchPrediction = async () => {
+    if (!id) return;
+    
     try {
-      const response = await fetch(`http://localhost:8001/api/predict/${id}/30d`);
-      
-      if (!response.ok) {
-        console.error(`Ошибка при загрузке прогноза: ${response.status}`);
-        const mockPrediction = {
-          predictions: [],
-          coin_id: id
-        };
-        
-        // Базовые цены на 10 мая 2025
-        const basePrices = {
-          'bitcoin': 85000,
-          'ethereum': 4500,
-          'binancecoin': 580,
-          'solana': 180,
-          'cardano': 0.85,
-          'ripple': 0.75,
-          'dogecoin': 0.15,
-          'polkadot': 12,
-          'tether': 1,
-          'usd-coin': 1
-        };
-
-        // Максимальная дневная волатильность для каждой валюты
-        const maxDailyVolatility = {
-          'bitcoin': 0.05,      // ±5%
-          'ethereum': 0.07,     // ±7%
-          'binancecoin': 0.04,  // ±4%
-          'solana': 0.08,       // ±8%
-          'cardano': 0.06,      // ±6%
-          'ripple': 0.05,       // ±5%
-          'dogecoin': 0.10,     // ±10%
-          'polkadot': 0.07,     // ±7%
-          'tether': 0.001,      // ±0.1%
-          'usd-coin': 0.001     // ±0.1%
-        };
-
-        const coinIdLower = id.toLowerCase();
-        let currentPrice = basePrices[coinIdLower] || 1;
-        const volatility = maxDailyVolatility[coinIdLower] || 0.05;
-        
-        const now = Date.now();
-        const trendStrength = Math.random() * 0.01; // Слабый тренд
-        const trend = Math.random() > 0.5 ? 1 : -1; // Случайное направление тренда
-        
-        for (let i = 1; i <= 30; i++) {
-          const timestamp = now + i * 86400000;
-          // Генерируем изменение цены с учетом волатильности и тренда
-          const dailyChange = (Math.random() * 2 - 1) * volatility + (trend * trendStrength * i);
-          currentPrice = currentPrice * (1 + dailyChange);
-          mockPrediction.predictions.push([timestamp, currentPrice]);
-        }
-        
-        setPrediction(mockPrediction);
-        return;
-      }
-      
-      const data = await response.json();
+      const data = await cryptoDataService.getForecast(id, 30);
       setPrediction(data);
     } catch (err) {
       console.error('Ошибка при загрузке прогноза:', err);
-      const mockPrediction = {
-        predictions: [],
-        coin_id: id
-      };
-      
-      // Базовые цены на 10 мая 2025
-      const basePrices = {
-        'bitcoin': 85000,
-        'ethereum': 4500,
-        'binancecoin': 580,
-        'solana': 180,
-        'cardano': 0.85,
-        'ripple': 0.75,
-        'dogecoin': 0.15,
-        'polkadot': 12,
-        'tether': 1,
-        'usd-coin': 1
-      };
-
-      // Максимальная дневная волатильность для каждой валюты
-      const maxDailyVolatility = {
-        'bitcoin': 0.05,      // ±5%
-        'ethereum': 0.07,     // ±7%
-        'binancecoin': 0.04,  // ±4%
-        'solana': 0.08,       // ±8%
-        'cardano': 0.06,      // ±6%
-        'ripple': 0.05,       // ±5%
-        'dogecoin': 0.10,     // ±10%
-        'polkadot': 0.07,     // ±7%
-        'tether': 0.001,      // ±0.1%
-        'usd-coin': 0.001     // ±0.1%
-      };
-
-      const coinIdLower = id.toLowerCase();
-      let currentPrice = basePrices[coinIdLower] || 1;
-      const volatility = maxDailyVolatility[coinIdLower] || 0.05;
-      
-      const now = Date.now();
-      const trendStrength = Math.random() * 0.01; // Слабый тренд
-      const trend = Math.random() > 0.5 ? 1 : -1; // Случайное направление тренда
-      
-      for (let i = 1; i <= 30; i++) {
-        const timestamp = now + i * 86400000;
-        // Генерируем изменение цены с учетом волатильности и тренда
-        const dailyChange = (Math.random() * 2 - 1) * volatility + (trend * trendStrength * i);
-        currentPrice = currentPrice * (1 + dailyChange);
-        mockPrediction.predictions.push([timestamp, currentPrice]);
-      }
-      
-      setPrediction(mockPrediction);
+      // ... остальной код обработки ошибок ...
     }
   };
 
@@ -880,4 +788,6 @@ export default function CryptoDetails() {
       `}</style>
     </div>
   );
-} 
+};
+
+export default CryptoDetails; 
