@@ -91,7 +91,7 @@ class RedisCache:
         data = self.get(key)
         return data
     
-    def set_current_price(self, currency, price_data, ttl=300):
+    def set_current_price(self, currency, price_data, ttl=21600):
         key = f"current_price:{currency}"
         self.set(key, price_data, ttl)
         

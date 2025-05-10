@@ -8,6 +8,7 @@ import numpy as np
 from models.arima_model import ArimaModel
 from services.coingecko_service import CoinGeckoService
 from data.cache_utils import RedisCache
+import traceback
 
 # Настройка логирования
 logging.basicConfig(level=logging.DEBUG)
@@ -106,72 +107,107 @@ async def get_historical_prices_by_dates(
     except Exception as e:
         logger.error(f"Ошибка при получении исторических данных: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if 'coingecko' in locals():
+            await coingecko.close()
 
 @router.get("/{coin_id}/{period}")
 async def get_prediction(
     coin_id: str = Path(..., description="ID криптовалюты"),
     period: str = Path(..., description="Период предсказания (1d, 7d, 30d, 90d, 365d)"),
-    chart_type: str = Query("real", description="Тип графика (real/prediction)")
+    chart_type: str = Query("real", description="Тип графика (real/prediction)"),
+    is_prediction: bool = Query(None, description="Флаг предсказания (true/false), альтернатива chart_type")
 ):
     try:
+        # Если передан параметр is_prediction, используем его вместо chart_type
+        if is_prediction is not None:
+            chart_type = "prediction" if is_prediction else "real"
+        
+        logger.info(f"Получен запрос на исторические данные: coin_id={coin_id}, period={period}, chart_type={chart_type}")
+        
         cache_key = f"historical_{coin_id}_{period}_{chart_type}"
         cached_result = cache.get(cache_key)
         if cached_result:
             logger.info(f"Возвращаем исторические данные из кэша для {coin_id} {period} {chart_type}")
             return cached_result
 
-        print(f"chart_type={chart_type}")
         if period not in PERIOD_TO_DAYS:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Неподдерживаемый интервал. Используйте {', '.join([f'{k}' for k in PERIOD_TO_DAYS.keys()])}"
-            )
+            error_msg = f"Неподдерживаемый интервал: {period}. Используйте {', '.join([f'{k}' for k in PERIOD_TO_DAYS.keys()])}"
+            logger.error(error_msg)
+            raise HTTPException(status_code=400, detail=error_msg)
 
         days = PERIOD_TO_DAYS[period]
 
         if chart_type == "real":
-            print("Возвращаем реальные данные, не используем ArimaModel")
-            historical_data = await coingecko.get_coin_history(coin_id, days)
-            if not historical_data:
-                raise HTTPException(status_code=404, detail="Не удалось получить исторические данные")
-            result = {
-                "prices": historical_data,
-                "coin_id": coin_id,
-                "period": period,
-                "chart_type": chart_type
-            }
-            cache.set(cache_key, result, ttl=3600)
-            return result
+            logger.info(f"Запрашиваем реальные данные для {coin_id} за {days} дней")
+            try:
+                historical_data = await coingecko.get_coin_history(coin_id, days)
+                if not historical_data:
+                    error_msg = f"Не удалось получить исторические данные для {coin_id}"
+                    logger.error(error_msg)
+                    raise HTTPException(status_code=404, detail=error_msg)
+                
+                result = {
+                    "prices": historical_data,
+                    "coin_id": coin_id,
+                    "period": period,
+                    "chart_type": chart_type
+                }
+                cache.set(cache_key, result, ttl=3600)
+                return result
+            except Exception as e:
+                error_msg = f"Ошибка при получении исторических данных от CoinGecko: {str(e)}\n{traceback.format_exc()}"
+                logger.error(error_msg)
+                raise HTTPException(status_code=500, detail=error_msg)
         else:
-            print("Используем ArimaModel для прогноза")
-            training_days = days * 3
-            historical_data = await coingecko.get_coin_history(coin_id, training_days)
-            if not historical_data:
-                raise HTTPException(status_code=404, detail="Не удалось получить исторические данные для прогноза")
-            prices = np.array([price[1] for price in historical_data])
-            timestamps = [price[0] for price in historical_data]
-            model = ArimaModel()
-            logger.info(f"ROUTER: period={period}, days={days}, chart_type={chart_type}, prices_len={len(prices)}")
-            model.train(prices)
-            predictions = model.forecast(prices, steps=days)
-            logger.info(f"ROUTER: predictions_len={len(predictions)} (ожидалось {days})")
-            last_timestamp = timestamps[-1]
-            prediction_timestamps = [
-                last_timestamp + (i + 1) * 24 * 60 * 60 * 1000
-                for i in range(len(predictions))
-            ]
-            prediction_data = list(zip(prediction_timestamps, predictions.tolist()))
-            result = {
-                "predictions": prediction_data,
-                "coin_id": coin_id,
-                "period": period,
-                "chart_type": chart_type
-            }
-            cache.set(cache_key, result, ttl=3600)
-            return result
+            logger.info(f"Генерируем прогноз для {coin_id} на {days} дней")
+            try:
+                training_days = days * 3
+                historical_data = await coingecko.get_coin_history(coin_id, training_days)
+                if not historical_data:
+                    error_msg = f"Не удалось получить исторические данные для прогноза {coin_id}"
+                    logger.error(error_msg)
+                    raise HTTPException(status_code=404, detail=error_msg)
+                
+                prices = np.array([price[1] for price in historical_data])
+                timestamps = [price[0] for price in historical_data]
+                
+                model = ArimaModel()
+                logger.info(f"Обучаем модель ARIMA: period={period}, days={days}, prices_len={len(prices)}")
+                model.train(prices)
+                
+                predictions = model.forecast(prices, steps=days)
+                logger.info(f"Сгенерирован прогноз: predictions_len={len(predictions)} (ожидалось {days})")
+                
+                last_timestamp = timestamps[-1]
+                prediction_timestamps = [
+                    last_timestamp + (i + 1) * 24 * 60 * 60 * 1000
+                    for i in range(len(predictions))
+                ]
+                prediction_data = list(zip(prediction_timestamps, predictions.tolist()))
+                
+                result = {
+                    "predictions": prediction_data,
+                    "coin_id": coin_id,
+                    "period": period,
+                    "chart_type": chart_type
+                }
+                cache.set(cache_key, result, ttl=3600)
+                return result
+            except Exception as e:
+                error_msg = f"Ошибка при генерации прогноза: {str(e)}\n{traceback.format_exc()}"
+                logger.error(error_msg)
+                raise HTTPException(status_code=500, detail=error_msg)
+                
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.error(f"Ошибка при получении данных: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        error_msg = f"Непредвиденная ошибка: {str(e)}\n{traceback.format_exc()}"
+        logger.error(error_msg)
+        raise HTTPException(status_code=500, detail=error_msg)
+    finally:
+        if 'coingecko' in locals():
+            await coingecko.close()
 
 @router.get("/predict/by-dates")
 async def predict_by_dates(

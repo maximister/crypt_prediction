@@ -26,7 +26,7 @@ export default function Settings() {
         }
       });
       const data = await response.json();
-      setWatchlist(data.watchlist);
+      setWatchlist(data || []);
     } catch (error) {
       console.error('Error fetching watchlist:', error);
     }

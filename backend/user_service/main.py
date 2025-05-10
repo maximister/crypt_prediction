@@ -3,13 +3,14 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from pymongo import MongoClient
 from datetime import datetime, timedelta
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
 from jose import JWTError, jwt
 import os
 from dotenv import load_dotenv
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, Field
 from passlib.context import CryptContext
 import motor.motor_asyncio
+import uuid
 
 load_dotenv()
 
@@ -43,6 +44,7 @@ class UserCreate(BaseModel):
     password: str
     first_name: Optional[str] = None
     last_name: Optional[str] = None
+    role: str = "user"  # По умолчанию роль "user"
 
 class User(BaseModel):
     email: str
@@ -50,6 +52,9 @@ class User(BaseModel):
     last_name: Optional[str] = None
     watchlist: List[str] = []
     dashboards: List[dict] = []
+    alerts: List[dict] = []
+    role: str = "user"  # Добавляем поле для роли пользователя, по умолчанию "user"
+    is_active: bool = True  # По умолчанию аккаунт активен
 
 class UserInDB(User):
     hashed_password: str
@@ -86,6 +91,49 @@ class Dashboard(BaseModel):
 class LoginRequest(BaseModel):
     email: str
     password: str
+
+class PriceAlert(BaseModel):
+    coin_id: str
+    condition: str
+    type: str
+    price: Optional[float] = None
+    percentage: Optional[float] = None
+
+class PriceAlertResponse(BaseModel):
+    id: str
+    coin_id: str
+    condition: str
+    type: str
+    price: Optional[float] = None
+    percentage: Optional[float] = None
+    created_at: datetime
+
+class WatchlistAction(BaseModel):
+    coin_id: Optional[str] = None
+    currency: Optional[str] = None
+    action: str
+
+class CryptoCurrency(BaseModel):
+    id: str
+    name: str
+    symbol: str
+    description: Optional[str] = None
+    logo_url: Optional[str] = None
+    is_active: bool = True
+    created_at: datetime = Field(default_factory=datetime.now)
+    updated_at: datetime = Field(default_factory=datetime.now)
+    
+    class Config:
+        schema_extra = {
+            "example": {
+                "id": "bitcoin",
+                "name": "Bitcoin",
+                "symbol": "BTC",
+                "description": "Bitcoin is a decentralized digital currency.",
+                "logo_url": "https://assets.coincap.io/assets/icons/bitcoin@2x.png",
+                "is_active": True
+            }
+        }
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
     to_encode = data.copy()
@@ -132,10 +180,29 @@ async def get_current_user(token: str = Depends(oauth2_scheme)):
         token_data = TokenData(email=email)
     except JWTError:
         raise credentials_exception
+    
     user = await get_user(email=token_data.email)
     if user is None:
         raise credentials_exception
+    
+    if hasattr(user, 'is_active') and not user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Аккаунт деактивирован",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    
     return user
+
+async def check_admin_role(current_user: UserInDB = Depends(get_current_user)):
+    """Проверяет, имеет ли пользователь роль администратора"""
+    if current_user.role != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="У вас нет прав для выполнения этого действия",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    return current_user
 
 @app.get("/check-user/{email}")
 async def check_user(email: str):
@@ -157,8 +224,11 @@ async def register(user_data: UserCreate):
         "hashed_password": hashed_password,
         "watchlist": [],
         "dashboards": [],
+        "alerts": [],
         "first_name": user_data.first_name,
-        "last_name": user_data.last_name
+        "last_name": user_data.last_name,
+        "role": user_data.role,
+        "is_active": True
     }
     await db.users.insert_one(user_dict)
     print(f"User registered successfully: {user_data.email}")
@@ -178,6 +248,13 @@ async def login(login_data: LoginRequest):
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Неверный email или пароль"
         )
+    
+    if hasattr(user, 'is_active') and not user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Аккаунт деактивирован. Обратитесь к администратору."
+        )
+    
     access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     access_token = create_access_token(
         data={"sub": user.email}, expires_delta=access_token_expires
@@ -188,6 +265,29 @@ async def login(login_data: LoginRequest):
 @app.get("/watchlist", response_model=List[str])
 async def get_watchlist(current_user: User = Depends(get_current_user)):
     return current_user.watchlist
+
+@app.put("/watchlist")
+async def update_watchlist(action: WatchlistAction, current_user: User = Depends(get_current_user)):
+    coin_id = action.coin_id or action.currency
+    
+    if not coin_id:
+        raise HTTPException(status_code=400, detail="coin_id или currency должны быть указаны")
+    
+    if action.action == "add":
+        if coin_id not in current_user.watchlist:
+            await db.users.update_one(
+                {"email": current_user.email},
+                {"$push": {"watchlist": coin_id}}
+            )
+        return {"message": "Монета добавлена в список избранного"}
+    elif action.action == "remove":
+        await db.users.update_one(
+            {"email": current_user.email},
+            {"$pull": {"watchlist": coin_id}}
+        )
+        return {"message": "Монета удалена из списка избранного"}
+    else:
+        raise HTTPException(status_code=400, detail="Недопустимое действие. Используйте 'add' или 'remove'")
 
 @app.put("/watchlist/{coin}")
 async def add_to_watchlist(coin: str, current_user: User = Depends(get_current_user)):
@@ -266,10 +366,8 @@ async def get_profile(current_user: User = Depends(get_current_user)):
 @app.put("/profile", response_model=User)
 async def update_profile(user_update: UserUpdate, current_user: User = Depends(get_current_user)):
     try:
-        # Пробуем использовать model_dump (Pydantic v2)
         update_data = user_update.model_dump(exclude_unset=True)
     except AttributeError:
-        # Если не получилось, используем dict (Pydantic v1)
         update_data = user_update.dict(exclude_unset=True)
     
     if not update_data:
@@ -285,17 +383,14 @@ async def update_profile(user_update: UserUpdate, current_user: User = Depends(g
 
 @app.post("/change-password")
 async def change_password(password_data: PasswordChange, current_user: UserInDB = Depends(get_current_user)):
-    # Проверяем текущий пароль
     if not pwd_context.verify(password_data.current_password, current_user.hashed_password):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Неверный текущий пароль"
         )
     
-    # Хешируем новый пароль
     hashed_password = pwd_context.hash(password_data.new_password)
     
-    # Обновляем пароль в базе данных
     await db.users.update_one(
         {"email": current_user.email},
         {"$set": {"hashed_password": hashed_password}}
@@ -305,7 +400,6 @@ async def change_password(password_data: PasswordChange, current_user: UserInDB 
 
 @app.delete("/account")
 async def delete_account(current_user: UserInDB = Depends(get_current_user)):
-    # Удаляем пользователя из базы данных
     result = await db.users.delete_one({"email": current_user.email})
     
     if result.deleted_count == 0:
@@ -318,8 +412,313 @@ async def delete_account(current_user: UserInDB = Depends(get_current_user)):
 
 @app.post("/logout")
 async def logout():
-    # Для JWT обычно logout реализуется на фронте (удаление токена). Здесь можно добавить blacklist, если потребуется.
     return {"message": "Logged out successfully"}
+
+@app.get("/alerts", response_model=List[PriceAlertResponse])
+async def get_alerts(current_user: User = Depends(get_current_user)):
+    """Получить все уведомления пользователя"""
+    if not hasattr(current_user, 'alerts'):
+        return []
+    return current_user.alerts
+
+@app.post("/alerts", response_model=PriceAlertResponse)
+async def create_alert(alert: PriceAlert, current_user: User = Depends(get_current_user)):
+    """Создать новое уведомление о цене"""
+    if alert.coin_id not in current_user.watchlist:
+        raise HTTPException(status_code=400, detail="Монета должна быть в списке избранного")
+    
+    if alert.type == "price" and alert.price is None:
+        raise HTTPException(status_code=400, detail="Для уведомления по цене необходимо указать цену")
+    
+    if alert.type == "percentage" and alert.percentage is None:
+        raise HTTPException(status_code=400, detail="Для уведомления по проценту необходимо указать процент")
+    
+    new_alert = {
+        "id": str(uuid.uuid4()),
+        "coin_id": alert.coin_id,
+        "condition": alert.condition,
+        "type": alert.type,
+        "price": alert.price,
+        "percentage": alert.percentage,
+        "created_at": datetime.now()
+    }
+    
+    await db.users.update_one(
+        {"email": current_user.email},
+        {"$push": {"alerts": new_alert}}
+    )
+    
+    return new_alert
+
+@app.delete("/alerts/{alert_id}")
+async def delete_alert(alert_id: str, current_user: User = Depends(get_current_user)):
+    """Удалить уведомление о цене"""
+    result = await db.users.update_one(
+        {"email": current_user.email},
+        {"$pull": {"alerts": {"id": alert_id}}}
+    )
+    
+    if result.modified_count == 0:
+        raise HTTPException(status_code=404, detail="Уведомление не найдено")
+    
+    return {"message": "Уведомление удалено"}
+
+
+@app.get("/cryptocurrencies", response_model=List[CryptoCurrency])
+async def get_cryptocurrencies(active_only: bool = True):
+    """Получить список всех доступных криптовалют"""
+    query = {"is_active": True} if active_only else {}
+    cursor = db.cryptocurrencies.find(query)
+    currencies = await cursor.to_list(length=100)
+    return currencies
+
+@app.get("/cryptocurrencies/{currency_id}", response_model=CryptoCurrency)
+async def get_cryptocurrency(currency_id: str):
+    """Получить информацию о конкретной криптовалюте"""
+    currency = await db.cryptocurrencies.find_one({"id": currency_id})
+    if not currency:
+        raise HTTPException(status_code=404, detail="Криптовалюта не найдена")
+    return currency
+
+@app.post("/cryptocurrencies", response_model=CryptoCurrency)
+async def create_cryptocurrency(currency: CryptoCurrency, current_user: UserInDB = Depends(check_admin_role)):
+    """Добавить новую криптовалюту (только для администраторов)"""
+    # Проверка прав администратора выполняется через check_admin_role
+    
+    # Проверяем, существует ли уже такая валюта
+    existing = await db.cryptocurrencies.find_one({"id": currency.id})
+    if existing:
+        raise HTTPException(status_code=400, detail="Криптовалюта с таким ID уже существует")
+    
+    # Добавляем валюту в базу
+    currency_dict = currency.dict()
+    currency_dict["created_at"] = datetime.now()
+    currency_dict["updated_at"] = datetime.now()
+    
+    result = await db.cryptocurrencies.insert_one(currency_dict)
+    
+    # Получаем и возвращаем созданную валюту
+    created_currency = await db.cryptocurrencies.find_one({"_id": result.inserted_id})
+    return created_currency
+
+@app.put("/cryptocurrencies/{currency_id}", response_model=CryptoCurrency)
+async def update_cryptocurrency(
+    currency_id: str, 
+    currency_update: dict, 
+    current_user: UserInDB = Depends(check_admin_role)
+):
+    """Обновить информацию о криптовалюте (только для администраторов)"""
+    # Проверка прав администратора выполняется через check_admin_role
+    
+    # Проверяем, существует ли валюта
+    existing = await db.cryptocurrencies.find_one({"id": currency_id})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Криптовалюта не найдена")
+    
+    # Обновляем данные
+    currency_update["updated_at"] = datetime.now()
+    
+    await db.cryptocurrencies.update_one(
+        {"id": currency_id},
+        {"$set": currency_update}
+    )
+    
+    # Возвращаем обновленную валюту
+    updated_currency = await db.cryptocurrencies.find_one({"id": currency_id})
+    return updated_currency
+
+@app.delete("/cryptocurrencies/{currency_id}")
+async def delete_cryptocurrency(currency_id: str, current_user: UserInDB = Depends(check_admin_role)):
+    """Удалить криптовалюту (только для администраторов)"""
+    # Проверка прав администратора выполняется через check_admin_role
+    
+    # Проверяем, существует ли валюта
+    existing = await db.cryptocurrencies.find_one({"id": currency_id})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Криптовалюта не найдена")
+    
+    # Удаляем валюту
+    await db.cryptocurrencies.delete_one({"id": currency_id})
+    
+    return {"message": "Криптовалюта успешно удалена"}
+
+# Эндпоинт для проверки роли администратора
+@app.get("/check-admin")
+async def check_admin(current_user: UserInDB = Depends(get_current_user)):
+    """Проверяет, является ли текущий пользователь администратором"""
+    if current_user.role == "admin":
+        return {"is_admin": True}
+    return {"is_admin": False}
+
+# API эндпоинты для управления пользователями (только для админов)
+@app.get("/users", response_model=List[User])
+async def get_users(current_user: UserInDB = Depends(check_admin_role)):
+    """Получить список всех пользователей (только для администраторов)"""
+    cursor = db.users.find({})
+    users = await cursor.to_list(length=100)
+    # Удаляем поле hashed_password для безопасности
+    for user in users:
+        if "hashed_password" in user:
+            del user["hashed_password"]
+    return users
+
+@app.put("/users/{email}/role")
+async def update_user_role(email: str, role: str, current_user: UserInDB = Depends(check_admin_role)):
+    """Обновить роль пользователя (только для администраторов)"""
+    # Проверяем существование пользователя
+    user = await db.users.find_one({"email": email})
+    if not user:
+        raise HTTPException(status_code=404, detail="Пользователь не найден")
+    
+    # Проверяем, что админ не пытается изменить свою роль
+    if email == current_user.email:
+        raise HTTPException(status_code=400, detail="Нельзя изменить собственную роль")
+    
+    # Проверяем валидность роли
+    if role not in ["user", "admin"]:
+        raise HTTPException(status_code=400, detail="Недопустимая роль. Используйте 'user' или 'admin'")
+    
+    # Обновляем роль
+    await db.users.update_one(
+        {"email": email},
+        {"$set": {"role": role}}
+    )
+    
+    return {"message": f"Роль пользователя {email} изменена на {role}"}
+
+@app.put("/users/{email}/status")
+async def update_user_status(email: str, is_active: bool, current_user: UserInDB = Depends(check_admin_role)):
+    """Активировать/деактивировать пользователя (только для администраторов)"""
+    # Проверяем существование пользователя
+    user = await db.users.find_one({"email": email})
+    if not user:
+        raise HTTPException(status_code=404, detail="Пользователь не найден")
+    
+    # Проверяем, что админ не пытается деактивировать себя
+    if email == current_user.email:
+        raise HTTPException(status_code=400, detail="Нельзя деактивировать собственный аккаунт")
+    
+    # Обновляем статус пользователя
+    await db.users.update_one(
+        {"email": email},
+        {"$set": {"is_active": is_active}}
+    )
+    
+    status_message = "активирован" if is_active else "деактивирован"
+    return {"message": f"Аккаунт пользователя {email} {status_message}"}
+
+# Инициализация базы данных при запуске
+@app.on_event("startup")
+async def startup_db_client():
+    # Создаем пользователя-администратора, если его еще нет
+    admin_user = await db.users.find_one({"email": "admin@admin.com"})
+    if not admin_user:
+        print("Creating admin user")
+        hashed_password = pwd_context.hash("admin")
+        admin_dict = {
+            "email": "admin@admin.com",
+            "hashed_password": hashed_password,
+            "watchlist": [],
+            "dashboards": [],
+            "alerts": [],
+            "first_name": "Admin",
+            "last_name": "User",
+            "role": "admin",  # Устанавливаем роль админа
+            "is_active": True  # Аккаунт активен
+        }
+        await db.users.insert_one(admin_dict)
+        print("Admin user created successfully")
+    
+    # Проверяем наличие коллекции криптовалют и создаем её, если она отсутствует
+    if "cryptocurrencies" not in await db.list_collection_names():
+        # Создаем коллекцию
+        await db.create_collection("cryptocurrencies")
+        
+        # Добавляем базовые криптовалюты
+        default_currencies = [
+            {
+                "id": "bitcoin",
+                "name": "Bitcoin",
+                "symbol": "BTC",
+                "description": "Bitcoin is a decentralized digital currency.",
+                "logo_url": "https://assets.coincap.io/assets/icons/bitcoin@2x.png",
+                "is_active": True,
+                "created_at": datetime.now(),
+                "updated_at": datetime.now()
+            },
+            {
+                "id": "ethereum",
+                "name": "Ethereum",
+                "symbol": "ETH",
+                "description": "Ethereum is a decentralized computing platform.",
+                "logo_url": "https://assets.coincap.io/assets/icons/ethereum@2x.png",
+                "is_active": True,
+                "created_at": datetime.now(),
+                "updated_at": datetime.now()
+            },
+            {
+                "id": "binancecoin",
+                "name": "Binance Coin",
+                "symbol": "BNB",
+                "description": "Binance Coin is the cryptocurrency issued by Binance exchange.",
+                "logo_url": "https://assets.coincap.io/assets/icons/binancecoin@2x.png",
+                "is_active": True,
+                "created_at": datetime.now(),
+                "updated_at": datetime.now()
+            },
+            {
+                "id": "ripple",
+                "name": "XRP",
+                "symbol": "XRP",
+                "description": "XRP is the cryptocurrency used by the Ripple payment network.",
+                "logo_url": "https://assets.coincap.io/assets/icons/ripple@2x.png",
+                "is_active": True,
+                "created_at": datetime.now(),
+                "updated_at": datetime.now()
+            },
+            {
+                "id": "cardano",
+                "name": "Cardano",
+                "symbol": "ADA",
+                "description": "Cardano is a proof-of-stake blockchain platform.",
+                "logo_url": "https://assets.coincap.io/assets/icons/cardano@2x.png",
+                "is_active": True,
+                "created_at": datetime.now(),
+                "updated_at": datetime.now()
+            },
+            {
+                "id": "solana",
+                "name": "Solana",
+                "symbol": "SOL",
+                "description": "Solana is a high-performance blockchain supporting smart contracts and decentralized applications.",
+                "logo_url": "https://assets.coincap.io/assets/icons/solana@2x.png",
+                "is_active": True,
+                "created_at": datetime.now(),
+                "updated_at": datetime.now()
+            },
+            {
+                "id": "polkadot",
+                "name": "Polkadot",
+                "symbol": "DOT",
+                "description": "Polkadot is a platform that allows diverse blockchains to transfer messages and value.",
+                "logo_url": "https://assets.coincap.io/assets/icons/polkadot@2x.png",
+                "is_active": True,
+                "created_at": datetime.now(),
+                "updated_at": datetime.now()
+            },
+            {
+                "id": "dogecoin",
+                "name": "Dogecoin",
+                "symbol": "DOGE",
+                "description": "Dogecoin is a cryptocurrency featuring the Shiba Inu dog from the 'Doge' meme.",
+                "logo_url": "https://assets.coincap.io/assets/icons/dogecoin@2x.png",
+                "is_active": True,
+                "created_at": datetime.now(),
+                "updated_at": datetime.now()
+            }
+        ]
+        
+        await db.cryptocurrencies.insert_many(default_currencies)
 
 if __name__ == "__main__":
     import uvicorn

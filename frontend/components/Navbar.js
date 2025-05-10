@@ -6,13 +6,41 @@ const Navbar = () => {
     const router = useRouter();
     const currentPath = router.pathname;
     const [isAuth, setIsAuth] = useState(false);
+    const [isAdmin, setIsAdmin] = useState(false);
     const [showLogoutModal, setShowLogoutModal] = useState(false);
 
     useEffect(() => {
-        if (typeof window !== 'undefined') {
-            setIsAuth(!!localStorage.getItem('token'));
-        }
+        checkAuth();
     }, [typeof window !== 'undefined' && localStorage.getItem('token')]);
+
+    const checkAuth = async () => {
+        if (typeof window !== 'undefined') {
+            const token = localStorage.getItem('token');
+            setIsAuth(!!token);
+            
+            if (token) {
+                try {
+                    const response = await fetch('http://localhost:8000/check-admin', {
+                        headers: {
+                            'Authorization': `Bearer ${token}`
+                        }
+                    });
+                    
+                    if (response.ok) {
+                        const data = await response.json();
+                        setIsAdmin(data.is_admin);
+                    } else {
+                        setIsAdmin(false);
+                    }
+                } catch (err) {
+                    console.error('Ошибка при проверке прав доступа:', err);
+                    setIsAdmin(false);
+                }
+            } else {
+                setIsAdmin(false);
+            }
+        }
+    };
 
     const handleLogout = async () => {
         localStorage.removeItem('token');
@@ -21,6 +49,7 @@ const Navbar = () => {
         } catch (e) {}
         setShowLogoutModal(false);
         setIsAuth(false);
+        setIsAdmin(false);
         router.push('/');
     };
 
@@ -51,6 +80,14 @@ const Navbar = () => {
                             >
                                 Личный кабинет
                             </Link>
+                            {isAdmin && (
+                                <Link 
+                                    href="/admin" 
+                                    className={`navbar-link admin-link ${currentPath.startsWith('/admin') ? 'active' : ''}`}
+                                >
+                                    Админка
+                                </Link>
+                            )}
                             <button className="navbar-link navbar-logout-btn" onClick={() => setShowLogoutModal(true)}>
                                 Выйти
                             </button>
@@ -124,6 +161,19 @@ const Navbar = () => {
                 .navbar-link.active {
                     background: #007bff;
                     color: white;
+                }
+
+                .navbar-link.admin-link {
+                    background-color: #6c757d;
+                    color: white;
+                }
+
+                .navbar-link.admin-link:hover {
+                    background-color: #5a6268;
+                }
+
+                .navbar-link.admin-link.active {
+                    background-color: #343a40;
                 }
 
                 .navbar-logout-btn {

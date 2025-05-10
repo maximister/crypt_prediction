@@ -34,6 +34,25 @@ services:
     depends_on:
       - redis
 
+  notification-service:
+    build: ./backend/notification_service
+    ports:
+      - "8003:8003"
+    environment:
+      - MONGO_URL=mongodb://mongo:27017/crypto
+      - REDIS_URL=redis://redis:6379
+      - PRICE_API_URL=http://prediction-service:8001/api/price
+      - EMAIL_HOST=smtp.gmail.com
+      - EMAIL_PORT=587
+      - EMAIL_USER=${EMAIL_USER}
+      - EMAIL_PASSWORD=${EMAIL_PASSWORD}
+      - EMAIL_FROM=noreply@cryptoapp.com
+    depends_on:
+      - mongo
+      - redis
+      - prediction-service
+      - user-service
+
   mongo:
     image: mongo:latest
     ports:
