@@ -8,10 +8,12 @@ export default function Login() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
+  const [isDeactivated, setIsDeactivated] = useState(false);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
+    setIsDeactivated(false);
 
     try {
       const response = await fetch('http://localhost:8000/login', {
@@ -29,6 +31,11 @@ export default function Login() {
       const data = await response.json();
 
       if (!response.ok) {
+        // Проверяем, является ли ошибка деактивацией аккаунта
+        if (response.status === 403 && data.detail && data.detail.includes('деактивирован')) {
+          setIsDeactivated(true);
+          throw new Error(data.detail);
+        }
         throw new Error(data.detail || 'Неверные учетные данные');
       }
 
@@ -50,7 +57,7 @@ export default function Login() {
         <h2 className="text-2xl font-bold mb-6 text-center">Вход в систему</h2>
 
         {error && (
-          <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4">
+          <div className={`border px-4 py-3 rounded mb-4 ${isDeactivated ? 'bg-yellow-100 border-yellow-400 text-yellow-700' : 'bg-red-100 border-red-400 text-red-700'}`}>
             {error}
           </div>
         )}

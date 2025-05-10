@@ -18,6 +18,8 @@ class CoinGeckoAPI:
         self.base_url = "https://api.coingecko.com/api/v3"
         self.session = None
         self.api_key = os.getenv("COINGECKO_API_KEY")
+        if not self.api_key:
+            logger.warning("COINGECKO_API_KEY не установлен. Будут использоваться ограничения бесплатного API.")
 
     async def _ensure_session(self):
         if self.session is None:
@@ -27,6 +29,46 @@ class CoinGeckoAPI:
         if self.session:
             await self.session.close()
             self.session = None
+
+    async def get_current_price(self, coin_id: str):
+        """
+        Получает текущую цену криптовалюты.
+        
+        Args:
+            coin_id: ID криптовалюты на CoinGecko
+            
+        Returns:
+            Current price in USD
+        """
+        try:
+            await self._ensure_session()
+            url = f"{self.base_url}/simple/price"
+            params = {
+                "ids": coin_id,
+                "vs_currencies": "usd"
+            }
+            headers = {"x-cg-pro-api-key": self.api_key} if self.api_key else {}
+
+            async with self.session.get(url, params=params, headers=headers) as response:
+                if response.status == 429:  # Rate limit
+                    logger.warning("Rate limit hit, waiting before retry...")
+                    await asyncio.sleep(60)
+                    return await self.get_current_price(coin_id)
+                
+                if response.status != 200:
+                    logger.error(f"Error fetching current price: {response.status}")
+                    return None
+                
+                data = await response.json()
+                price = data.get(coin_id, {}).get("usd")
+                if price is None:
+                    logger.error(f"Price not found for {coin_id}")
+                    return None
+                return price
+
+        except Exception as e:
+            logger.error(f"Error in get_current_price: {str(e)}")
+            return None
 
     async def get_historical_prices(self, coin_id: str, days: int = 30):
         """
@@ -64,42 +106,6 @@ class CoinGeckoAPI:
 
         except Exception as e:
             logger.error(f"Error in get_historical_prices: {str(e)}")
-            return None
-
-    async def get_current_price(self, coin_id: str):
-        """
-        Получает текущую цену криптовалюты.
-        
-        Args:
-            coin_id: ID криптовалюты на CoinGecko
-            
-        Returns:
-            Current price in USD
-        """
-        try:
-            await self._ensure_session()
-            url = f"{self.base_url}/simple/price"
-            params = {
-                "ids": coin_id,
-                "vs_currencies": "usd"
-            }
-            headers = {"x-cg-pro-api-key": self.api_key} if self.api_key else {}
-
-            async with self.session.get(url, params=params, headers=headers) as response:
-                if response.status == 429:  # Rate limit
-                    logger.warning("Rate limit hit, waiting before retry...")
-                    await asyncio.sleep(60)
-                    return await self.get_current_price(coin_id)
-                
-                if response.status != 200:
-                    logger.error(f"Error fetching current price: {response.status}")
-                    return None
-                
-                data = await response.json()
-                return data.get(coin_id, {}).get("usd")
-
-        except Exception as e:
-            logger.error(f"Error in get_current_price: {str(e)}")
             return None
 
     def get_timestamps(self, days):

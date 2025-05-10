@@ -1,26 +1,41 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
 
-const AVAILABLE_COINS = [
-  { id: 'bitcoin', name: 'Bitcoin', symbol: 'BTC' },
-  { id: 'ethereum', name: 'Ethereum', symbol: 'ETH' },
-  { id: 'binancecoin', name: 'Binance Coin', symbol: 'BNB' },
-  { id: 'ripple', name: 'XRP', symbol: 'XRP' },
-  { id: 'cardano', name: 'Cardano', symbol: 'ADA' },
-  { id: 'solana', name: 'Solana', symbol: 'SOL' },
-  { id: 'polkadot', name: 'Polkadot', symbol: 'DOT' },
-  { id: 'dogecoin', name: 'Dogecoin', symbol: 'DOGE' }
-];
-
 export default function WatchlistManager() {
   const [watchlist, setWatchlist] = useState([]);
+  const [availableCoins, setAvailableCoins] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const router = useRouter();
 
   useEffect(() => {
     fetchWatchlist();
+    fetchAvailableCoins();
   }, []);
+
+  const fetchAvailableCoins = async () => {
+    try {
+      const response = await fetch('http://localhost:8000/cryptocurrencies');
+      if (!response.ok) {
+        throw new Error('Не удалось загрузить список доступных криптовалют');
+      }
+      const data = await response.json();
+      setAvailableCoins(data);
+    } catch (err) {
+      console.error('Ошибка при загрузке списка криптовалют:', err);
+      // Если API недоступен, используем предопределенный список
+      setAvailableCoins([
+        { id: 'bitcoin', name: 'Bitcoin', symbol: 'BTC' },
+        { id: 'ethereum', name: 'Ethereum', symbol: 'ETH' },
+        { id: 'binancecoin', name: 'Binance Coin', symbol: 'BNB' },
+        { id: 'ripple', name: 'XRP', symbol: 'XRP' },
+        { id: 'cardano', name: 'Cardano', symbol: 'ADA' },
+        { id: 'solana', name: 'Solana', symbol: 'SOL' },
+        { id: 'polkadot', name: 'Polkadot', symbol: 'DOT' },
+        { id: 'dogecoin', name: 'Dogecoin', symbol: 'DOGE' }
+      ]);
+    }
+  };
 
   const fetchWatchlist = async () => {
     try {
@@ -46,7 +61,7 @@ export default function WatchlistManager() {
       }
 
       const data = await response.json();
-      setWatchlist(data.watchlist || []);
+      setWatchlist(data || []);
     } catch (err) {
       setError('Failed to load watchlist');
       console.error('Error:', err);
@@ -127,7 +142,7 @@ export default function WatchlistManager() {
       {error && <div className="error">{error}</div>}
       
       <div className="coins-grid">
-        {AVAILABLE_COINS.map(coin => {
+        {availableCoins.map(coin => {
           const isInWatchlist = watchlist.includes(coin.id);
           return (
             <div key={coin.id} className="coin-card">

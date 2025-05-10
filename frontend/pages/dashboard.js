@@ -1,19 +1,17 @@
 import React from 'react';
 import Head from 'next/head';
 import DashboardManager from '../components/DashboardManager';
-import WatchlistManager from '../components/WatchlistManager';
 
 export default function DashboardPage() {
     return (
         <>
             <Head>
                 <title>Дашборд - Crypto Analytics</title>
-                <meta name="description" content="Управление дашбордами и списком отслеживания криптовалют" />
+                <meta name="description" content="Управление дашбордами криптовалют" />
             </Head>
             <div className="dashboard-container">
                 <h1>Дашборд</h1>
                 <DashboardManager />
-                <WatchlistManager />
             </div>
             <style jsx global>{`
                 body {
