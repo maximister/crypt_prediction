@@ -2,7 +2,27 @@ import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import PriceChart from './PriceChart';
 
+// Функция для генерации UUID v4
+const generateUUID = () => {
+    // eslint-disable-next-line
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+        const r = Math.random() * 16 | 0,
+              v = c === 'x' ? r : (r & 0x3 | 0x8);
+        return v.toString(16);
+    });
+};
+
 const generateWidgetId = (dashboardId, widgetIndex) => `widget-${dashboardId}-${widgetIndex}`;
+
+// Начальные размеры и позиции для виджетов
+const DEFAULT_WIDGET_LAYOUT = {
+    x: 0,
+    y: 0,
+    w: 6,
+    h: 4,
+    minW: 3,
+    minH: 3
+};
 
 const DashboardManager = () => {
     const router = useRouter();
@@ -17,11 +37,22 @@ const DashboardManager = () => {
             period: '7d',
             chartType: 'real',
             title: 'Bitcoin Price Chart',
-            id: generateWidgetId('temp', 0)
+            id: generateWidgetId('temp', 0),
+            layout: DEFAULT_WIDGET_LAYOUT
         }]
     });
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState(null);
+    const [isWidgetModalOpen, setIsWidgetModalOpen] = useState(false);
+    const [currentDashboardId, setCurrentDashboardId] = useState(null);
+    const [newWidget, setNewWidget] = useState({
+        type: 'price_chart',
+        coin: 'bitcoin',
+        period: '7d',
+        chartType: 'real',
+        title: 'Bitcoin Price Chart',
+        layout: { ...DEFAULT_WIDGET_LAYOUT }
+    });
 
     const dashboardTypes = [
         { value: 'price', label: 'Курс валюты' },
@@ -44,6 +75,22 @@ const DashboardManager = () => {
     useEffect(() => {
         console.log('=== DASHBOARDS STATE ===');
         console.log('Current dashboards:', dashboards);
+        
+        // Сохраняем текущее состояние дашбордов в localStorage
+        if (dashboards.length > 0) {
+            try {
+                const dashboardsForStorage = dashboards.map(dashboard => ({
+                    id: dashboard.id,
+                    widgets: dashboard.widgets.map(widget => ({
+                        id: widget.id,
+                        layout: widget.layout
+                    }))
+                }));
+                localStorage.setItem('dashboardLayouts', JSON.stringify(dashboardsForStorage));
+            } catch (error) {
+                console.error('Ошибка при сохранении макетов дашбордов в localStorage:', error);
+            }
+        }
     }, [dashboards]);
 
     const fetchDashboards = async () => {
@@ -78,6 +125,23 @@ const DashboardManager = () => {
             const data = await response.json();
             console.log('Raw dashboard data:', data);
 
+            // Попытка загрузить сохраненные макеты из localStorage
+            let savedLayouts = {};
+            try {
+                const savedLayoutsStr = localStorage.getItem('dashboardLayouts');
+                if (savedLayoutsStr) {
+                    const savedDashboards = JSON.parse(savedLayoutsStr);
+                    savedDashboards.forEach(dashboard => {
+                        savedLayouts[dashboard.id] = {};
+                        dashboard.widgets.forEach(widget => {
+                            savedLayouts[dashboard.id][widget.id] = widget.layout;
+                        });
+                    });
+                }
+            } catch (error) {
+                console.error('Ошибка при загрузке макетов из localStorage:', error);
+            }
+
             const processedData = data.map(dashboard => {
                 console.log('Processing dashboard:', dashboard);
                 return {
@@ -85,9 +149,19 @@ const DashboardManager = () => {
                     widgets: dashboard.widgets && dashboard.widgets.length > 0 ? dashboard.widgets.map((widget, index) => {
                         const widgetId = widget.id || generateWidgetId(dashboard.id, index);
                         console.log('Processing widget:', widget, 'with ID:', widgetId);
+                        
+                        // Используем сохраненный макет, если он есть
+                        const savedLayout = savedLayouts[dashboard.id] && savedLayouts[dashboard.id][widgetId];
+                        
                         return {
                             ...widget,
-                            id: widgetId
+                            id: widgetId,
+                            // Приоритет: 1) макет из виджета, 2) сохраненный макет, 3) макет по умолчанию
+                            layout: widget.layout || savedLayout || {
+                                ...DEFAULT_WIDGET_LAYOUT,
+                                x: (index % 2) * 6,
+                                y: Math.floor(index / 2) * 4
+                            }
                         };
                     }) : []
                 };
@@ -111,17 +185,23 @@ const DashboardManager = () => {
                 return;
             }
 
-            // Генерируем временный ID для нового дашборда
-            const tempId = `temp-${Date.now()}`;
+            // Генерируем UUID для нового дашборда вместо временной метки
+            const uuid = generateUUID();
             const dashboardWithId = {
                 ...newDashboard,
-                id: tempId,
+                id: uuid,
+                uuid: uuid, // Добавляем отдельное поле uuid для совместимости
                 widgets: newDashboard.widgets.map((widget, index) => {
-                    const widgetId = generateWidgetId(tempId, index);
+                    const widgetId = generateWidgetId(uuid, index);
                     console.log('Creating widget with ID:', widgetId);
                     return {
                         ...widget,
-                        id: widgetId
+                        id: widgetId,
+                        layout: widget.layout || {
+                            ...DEFAULT_WIDGET_LAYOUT,
+                            x: (index % 2) * 6,
+                            y: Math.floor(index / 2) * 4
+                        }
                     };
                 })
             };
@@ -150,14 +230,22 @@ const DashboardManager = () => {
             const data = await response.json();
             console.log('Server response:', data);
 
+            // Убедимся, что UUID сохранен в данных
             const processedData = {
                 ...data,
+                id: data.id || uuid, // Используем UUID, если сервер не вернул ID
+                uuid: data.uuid || uuid, // Сохраняем UUID
                 widgets: data.widgets.map((widget, index) => {
-                    const widgetId = widget.id || generateWidgetId(data.id, index);
+                    const widgetId = widget.id || generateWidgetId(data.id || uuid, index);
                     console.log('Processing widget with ID:', widgetId);
                     return {
                         ...widget,
-                        id: widgetId
+                        id: widgetId,
+                        layout: widget.layout || {
+                            ...DEFAULT_WIDGET_LAYOUT,
+                            x: (index % 2) * 6,
+                            y: Math.floor(index / 2) * 4
+                        }
                     };
                 })
             };
@@ -174,7 +262,8 @@ const DashboardManager = () => {
                     period: '7d',
                     chartType: 'real',
                     title: 'Bitcoin Price Chart',
-                    id: generateWidgetId('temp', 0)
+                    id: generateWidgetId('temp', 0),
+                    layout: DEFAULT_WIDGET_LAYOUT
                 }]
             });
         } catch (error) {
@@ -183,7 +272,7 @@ const DashboardManager = () => {
         }
     };
 
-    const handleDeleteDashboard = async (dashboardId) => {
+    const handleDeleteDashboard = async (dashboardId, dashboardUuid) => {
         try {
             const token = localStorage.getItem('token');
             if (!token) {
@@ -191,7 +280,10 @@ const DashboardManager = () => {
                 return;
             }
 
-            const response = await fetch(`http://localhost:8000/dashboard/${dashboardId}`, {
+            // Используем UUID, если доступен, иначе используем ID
+            const dashboardIdentifier = dashboardUuid || dashboardId;
+
+            const response = await fetch(`http://localhost:8000/dashboard/${dashboardIdentifier}`, {
                 method: 'DELETE',
                 headers: {
                     'Authorization': `Bearer ${token}`,
@@ -215,18 +307,16 @@ const DashboardManager = () => {
         }
     };
 
-    const renderWidget = (widget, dashboardId, widgetIndex) => {
+    const renderWidget = (widget, dashboardId, dashboardUuid) => {
         if (!widget || !widget.type) {
             console.error('Invalid widget:', widget);
             return null;
         }
 
-        const widgetId = widget.id || generateWidgetId(dashboardId, widgetIndex);
         console.log('=== RENDER WIDGET ===');
         console.log('Dashboard ID:', dashboardId);
-        console.log('Widget Index:', widgetIndex);
+        console.log('Dashboard UUID:', dashboardUuid);
         console.log('Widget:', widget);
-        console.log('Generated Widget ID:', widgetId);
 
         switch (widget.type) {
             case 'price_chart':
@@ -236,129 +326,188 @@ const DashboardManager = () => {
                     chartType: widget.chartType,
                     isPrediction: widget.chartType === 'prediction',
                     title: widget.title,
-                    widgetId
+                    widgetId: widget.id
                 };
                 
                 console.log('PriceChart props:', widgetProps);
                 
                 return (
-                    <div key={widgetId} className="widget">
+                    <div className="widget-content">
+                        <div className="widget-header">
                         <h3>{widgetProps.title}</h3>
+                            <button 
+                                className="delete-widget-btn"
+                                onClick={() => handleDeleteWidget(dashboardId, dashboardUuid, widget.id)}
+                                title="Удалить виджет"
+                            >
+                                ✕
+                            </button>
+                        </div>
                         <PriceChart {...widgetProps} />
                     </div>
                 );
             default:
-                return <div>Неподдерживаемый тип виджета</div>;
+                return <div>Неизвестный тип виджета: {widget.type}</div>;
+        }
+    };
+
+    const handleDeleteWidget = async (dashboardId, dashboardUuid, widgetId) => {
+        try {
+            const token = localStorage.getItem('token');
+            if (!token) {
+                router.push('/auth/login');
+                return;
+            }
+
+            const dashboard = dashboards.find(d => d.id === dashboardId);
+            if (!dashboard) {
+                throw new Error('Дашборд не найден');
+            }
+
+            const updatedWidgets = dashboard.widgets.filter(w => w.id !== widgetId);
+            const updatedDashboard = { ...dashboard, widgets: updatedWidgets };
+
+            // Используем UUID, если доступен, иначе используем ID
+            const dashboardIdentifier = dashboardUuid || dashboardId;
+
+            const response = await fetch(`http://localhost:8000/dashboard/${dashboardIdentifier}`, {
+                method: 'PUT',
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ widgets: updatedWidgets })
+            });
+
+            if (response.status === 401) {
+                localStorage.removeItem('token');
+                router.push('/auth/login');
+                return;
+            }
+
+            if (!response.ok) {
+                throw new Error('Ошибка при обновлении дашборда');
+            }
+
+            // Обновляем локальный стейт
+            setDashboards(dashboards.map(d => {
+                if (d.id === dashboardId) {
+                    return updatedDashboard;
+                }
+                return d;
+            }));
+            
+        } catch (error) {
+            console.error('Error deleting widget:', error);
+            setError(error.message);
         }
     };
 
     if (isLoading) {
-        console.log('Loading state:', isLoading);
         return <div className="loading">Загрузка дашбордов...</div>;
     }
 
     if (error) {
-        console.log('Error state:', error);
-        return <div className="error-message">{error}</div>;
+        return <div className="error">{error}</div>;
     }
-
-    console.log('=== RENDERING DASHBOARDS ===');
-    console.log('Current dashboards:', dashboards);
 
     return (
         <div className="dashboard-manager">
             <div className="dashboard-header">
-                <h2>Мои дашборды</h2>
+                <h1>Мои дашборды</h1>
+                <div className="action-buttons">
                 <button 
-                    className="btn btn-primary"
+                        className="add-dashboard-btn"
                     onClick={() => setIsModalOpen(true)}
                 >
                     Добавить дашборд
                 </button>
+                </div>
             </div>
 
-            {error && (
-                <div className="error-message">
-                    {error}
+            {dashboards.length === 0 ? (
+                <div className="no-dashboards">
+                    <p>У вас пока нет дашбордов.</p>
+                    <button onClick={() => setIsModalOpen(true)}>Создать первый дашборд</button>
                 </div>
-            )}
-
-            <div className="dashboard-grid">
-                {dashboards && dashboards.length > 0 ? (
-                    dashboards.map((dashboard) => {
-                        console.log('=== RENDERING DASHBOARD ===');
-                        console.log('Dashboard:', dashboard);
-                        return (
+            ) : (
+                <div className="dashboards-list">
+                    {dashboards.map(dashboard => (
                             <div key={dashboard.id} className="dashboard-card">
-                                <h3>{dashboard.name}</h3>
-                                <div className="dashboard-actions">
+                            <div className="dashboard-card-header">
+                                <h2>{dashboard.name}</h2>
+                                <div className="dashboard-card-actions">
                                     <button 
-                                        className="btn btn-primary"
-                                        onClick={() => router.push(`/dashboard/${dashboard.id}`)}
+                                        className="view-dashboard-btn"
+                                        onClick={() => router.push(`/dashboard/${dashboard.uuid || dashboard.id}`)}
                                     >
-                                        Перейти
+                                        Открыть
                                     </button>
                                     <button 
-                                        className="btn btn-secondary"
-                                        onClick={() => router.push(`/dashboard/${dashboard.id}/config`)}
-                                    >
-                                        Настроить
-                                    </button>
-                                    <button 
-                                        className="btn btn-danger"
-                                        onClick={() => handleDeleteDashboard(dashboard.id)}
+                                        className="delete-dashboard-btn"
+                                        onClick={() => handleDeleteDashboard(dashboard.id, dashboard.uuid)}
                                     >
                                         Удалить
                                     </button>
                                 </div>
                             </div>
-                        );
-                    })
-                ) : (
-                    <div className="no-dashboards">
+                            <div className="dashboard-preview">
+                                <p>{dashboard.widgets.length} виджетов</p>
+                                <p>Тип: {dashboard.type === 'price' ? 'Курс валюты' : 'Прогноз курса'}</p>
+                            </div>
+                        </div>
+                    ))}
                     </div>
                 )}
-            </div>
 
             {isModalOpen && (
-                <div className="modal">
+                <div className="modal-overlay">
                     <div className="modal-content">
-                        <h3>Создать новый дашборд</h3>
+                        <h2>Добавить новый дашборд</h2>
                         <div className="form-group">
                             <label>Название</label>
                             <input
                                 type="text"
                                 value={newDashboard.name}
                                 onChange={(e) => setNewDashboard({...newDashboard, name: e.target.value})}
+                                placeholder="Название дашборда"
                             />
+                        </div>
+                        <div className="form-group">
+                            <label>Тип</label>
+                            <select 
+                                value={newDashboard.type} 
+                                onChange={(e) => setNewDashboard({...newDashboard, type: e.target.value})}
+                            >
+                                {dashboardTypes.map(type => (
+                                    <option key={type.value} value={type.value}>{type.label}</option>
+                                ))}
+                            </select>
                         </div>
                         <div className="modal-actions">
                             <button 
-                                className="btn btn-primary"
-                                onClick={handleAddDashboard}
-                            >
-                                Создать
-                            </button>
-                            <button 
-                                className="btn btn-secondary"
+                                className="cancel-btn"
                                 onClick={() => setIsModalOpen(false)}
                             >
                                 Отмена
+                            </button>
+                            <button 
+                                className="confirm-btn"
+                                onClick={handleAddDashboard}
+                                disabled={!newDashboard.name}
+                            >
+                                Создать
                             </button>
                         </div>
                     </div>
                 </div>
             )}
 
-            <style>{`
+            <style jsx>{`
                 .dashboard-manager {
-                    background: #f8fafc;
-                    border-radius: 1.1rem;
-                    /* box-shadow: 0 4px 24px rgba(0,112,243,0.07), 0 1.5px 4px rgba(0,112,243,0.04); */
-                    padding: 2.5rem 20px 2rem 20px;
-                    margin: 2.5rem auto 0 auto;
-                    width: 1202px;
-                    max-width: 100vw;
+                    max-width: 1200px;
+                    margin: 0 auto;
+                    padding: 2rem;
                 }
                 
                 .dashboard-header {
@@ -368,160 +517,232 @@ const DashboardManager = () => {
                     margin-bottom: 2rem;
                 }
                 
-                .dashboard-grid {
+                .action-buttons {
+                    display: flex;
+                    gap: 1rem;
+                }
+
+                .add-dashboard-btn {
+                    padding: 0.75rem 1.5rem;
+                    background-color: #4a6cf7;
+                    color: white;
+                    border: none;
+                    border-radius: 8px;
+                    cursor: pointer;
+                    transition: all 0.2s;
+                    font-weight: 600;
+                }
+
+                .add-dashboard-btn:hover {
+                    background-color: #3a5bd9;
+                }
+
+                .dashboards-list {
                     display: grid;
-                    grid-template-columns: repeat(3, 370px);
+                    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
                     gap: 1.5rem;
-                    justify-content: center;
                 }
                 
                 .dashboard-card {
                     background: white;
-                    border-radius: 0.5rem;
-                    padding: 2rem 0.5rem 1.7rem 0.5rem;
-                    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-                    width: 100%;
-                    max-width: 100%;
+                    border-radius: 12px;
+                    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+                    overflow: hidden;
+                    transition: transform 0.2s, box-shadow 0.2s;
                     display: flex;
                     flex-direction: column;
-                    align-items: flex-start;
+                    height: 100%;
                 }
-                @media (max-width: 1240px) {
-                    .dashboard-manager {
-                        width: 100vw;
-                        max-width: 100vw;
-                        padding: 1rem 0.5rem;
-                        margin: 1rem 0 0 0;
-                    }
-                    .dashboard-grid {
-                        grid-template-columns: 1fr;
-                        gap: 0.7rem;
-                    }
+
+                .dashboard-card:hover {
+                    transform: translateY(-5px);
+                    box-shadow: 0 6px 12px rgba(0, 0, 0, 0.15);
                 }
-                
-                .dashboard-actions {
+
+                .dashboard-card-header {
+                    padding: 1.25rem;
+                    background: #f8f9fa;
+                    border-bottom: 1px solid #eee;
                     display: flex;
-                    gap: 1.7rem;
-                    margin-top: 1rem;
+                    justify-content: space-between;
+                    align-items: center;
+                    flex-shrink: 0;
+                }
+
+                .dashboard-card-header h2 {
+                    margin: 0;
+                    font-size: 1.25rem;
+                    color: #333;
+                    white-space: nowrap;
+                    overflow: hidden;
+                    text-overflow: ellipsis;
+                    max-width: 60%;
+                    }
+
+                .dashboard-card-actions {
+                    display: flex;
+                    gap: 0.5rem;
+                    flex-shrink: 0;
                 }
                 
-                .modal {
+                .dashboard-preview {
+                    padding: 1.25rem;
+                    flex-grow: 1;
+                    display: flex;
+                    flex-direction: column;
+                    justify-content: space-between;
+                }
+
+                .dashboard-preview p {
+                    margin: 0.5rem 0;
+                    color: #666;
+                }
+
+                .view-dashboard-btn,
+                .delete-dashboard-btn {
+                    padding: 0.5rem 0.75rem;
+                    border: none;
+                    border-radius: 4px;
+                    cursor: pointer;
+                    font-weight: 500;
+                    transition: background 0.2s;
+                    white-space: nowrap;
+                }
+
+                .view-dashboard-btn {
+                    background: #4a6cf7;
+                    color: white;
+                }
+
+                .view-dashboard-btn:hover {
+                    background: #3a5bd9;
+                }
+
+                .delete-dashboard-btn {
+                    background: #ff5555;
+                    color: white;
+                }
+
+                .delete-dashboard-btn:hover {
+                    background: #e04444;
+                }
+
+                .no-dashboards {
+                    text-align: center;
+                    padding: 3rem;
+                    background: #f9f9f9;
+                    border-radius: 12px;
+                }
+
+                .no-dashboards button {
+                    margin-top: 1rem;
+                    padding: 0.75rem 1.5rem;
+                    background-color: #4a6cf7;
+                    color: white;
+                    border: none;
+                    border-radius: 8px;
+                    cursor: pointer;
+                    font-weight: 600;
+                }
+                
+                .modal-overlay {
                     position: fixed;
                     top: 0;
                     left: 0;
                     right: 0;
                     bottom: 0;
-                    background: rgba(0,0,0,0.5);
+                    background: rgba(0, 0, 0, 0.5);
                     display: flex;
-                    justify-content: center;
                     align-items: center;
+                    justify-content: center;
+                    z-index: 1000;
                 }
                 
                 .modal-content {
                     background: white;
                     padding: 2rem;
-                    border-radius: 0.5rem;
-                    min-width: 400px;
+                    border-radius: 12px;
+                    width: 500px;
+                    max-width: 90%;
                 }
                 
                 .form-group {
-                    margin-bottom: 1rem;
+                    margin-bottom: 1.5rem;
                 }
                 
                 .form-group label {
                     display: block;
                     margin-bottom: 0.5rem;
+                    font-weight: 600;
                 }
                 
                 .form-group input,
                 .form-group select {
                     width: 100%;
-                    padding: 0.5rem;
+                    padding: 0.75rem;
                     border: 1px solid #ddd;
-                    border-radius: 0.25rem;
+                    border-radius: 8px;
+                    font-size: 1rem;
                 }
                 
                 .modal-actions {
                     display: flex;
+                    justify-content: flex-end;
                     gap: 1rem;
-                    margin-top: 1rem;
+                    margin-top: 2rem;
                 }
                 
-                .btn {
-                    padding: 0.7rem 1.4rem;
-                    border-radius: 0.25rem;
+                .cancel-btn,
+                .confirm-btn {
+                    padding: 0.75rem 1.5rem;
                     border: none;
+                    border-radius: 8px;
                     cursor: pointer;
-                    font-weight: 500;
-                    transition: background-color 0.2s;
+                    font-weight: 600;
                 }
                 
-                .btn-primary {
-                    background-color: #0070f3;
+                .cancel-btn {
+                    background-color: #f2f2f2;
+                    color: #333;
+                }
+                
+                .confirm-btn {
+                    background-color: #4a6cf7;
                     color: white;
                 }
                 
-                .btn-primary:hover {
-                    background-color: #0051b3;
+                .confirm-btn:disabled {
+                    background-color: #cccccc;
+                    cursor: not-allowed;
                 }
                 
-                .btn-secondary {
-                    background-color: #6c757d;
-                    color: white;
-                }
-                
-                .btn-secondary:hover {
-                    background-color: #5a6268;
-                }
-                
-                .btn-danger {
-                    background-color: #dc3545;
-                    color: white;
-                }
-                
-                .btn-danger:hover {
-                    background-color: #c82333;
-                }
-                
-                .loading {
+                .loading, .error {
                     text-align: center;
                     padding: 2rem;
-                    color: #666;
+                }
+
+                .error {
+                    color: #ff5555;
                 }
                 
-                .error-message {
-                    background-color: #fee2e2;
-                    color: #dc2626;
+                .widget-content {
                     padding: 1rem;
-                    border-radius: 0.25rem;
+                    background: white;
+                    border-radius: 8px;
+                    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
                     margin-bottom: 1rem;
                 }
                 
-                .no-widgets {
-                    padding: 2rem;
-                    text-align: center;
-                    background: #f8f9fa;
-                    border-radius: 0.5rem;
-                    margin: 1rem 0;
+                .widget-header {
+                    display: flex;
+                    justify-content: space-between;
+                    align-items: center;
+                    margin-bottom: 0.5rem;
                 }
                 
-                .no-widgets p {
-                    margin-bottom: 1rem;
-                    color: #6c757d;
-                }
-                
-                .no-dashboards {
-                    padding: 3rem;
-                    text-align: center;
-                    background: #f8f9fa;
-                    border-radius: 0.5rem;
-                    margin: 2rem 0;
-                }
-                
-                .no-dashboards p {
-                    margin-bottom: 1rem;
-                    color: #6c757d;
-                    font-size: 1.2rem;
+                .widget-header h3 {
+                    margin: 0;
+                    font-size: 1.1rem;
                 }
             `}</style>
         </div>

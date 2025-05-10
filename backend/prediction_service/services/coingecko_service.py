@@ -153,7 +153,7 @@ class CoinGeckoService:
                 "days": str(days),
                 "interval": "daily"
             }
-
+            
             data = await self._make_request(url, params, headers)
             if not data or "prices" not in data:
                 error_msg = f"Нет данных истории цен для {coin_id}"
@@ -164,7 +164,7 @@ class CoinGeckoService:
             prices = data["prices"]
             logger.debug(f"Получено {len(prices)} записей истории цен для {coin_id}")
             return prices
-
+            
         except Exception as e:
             logger.error(f"Ошибка при получении истории цен: {str(e)}")
             logger.error(f"Stack trace: {traceback.format_exc()}")

@@ -82,7 +82,32 @@ const DashboardConfig = ({ dashboardId }) => {
                 return;
             }
 
-            const response = await fetch(`http://localhost:8000/dashboard/${dashboardId}`, {
+            // Получаем полные данные дашборда перед отправкой на сервер
+            const fullDashboardResponse = await fetch(`http://localhost:8000/dashboard`, {
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                }
+            });
+            
+            if (!fullDashboardResponse.ok) {
+                throw new Error('Ошибка при получении данных дашборда');
+            }
+            
+            const dashboards = await fullDashboardResponse.json();
+            const currentDashboard = dashboards.find(d => 
+                String(d.id) === String(dashboardId) || 
+                (d.uuid && String(d.uuid) === String(dashboardId))
+            );
+            
+            if (!currentDashboard) {
+                throw new Error('Дашборд не найден');
+            }
+            
+            // Используем UUID для идентификации дашборда, если доступен
+            const dashboardIdentifier = currentDashboard.uuid || dashboardId;
+
+            const response = await fetch(`http://localhost:8000/dashboard/${dashboardIdentifier}`, {
                 method: 'PUT',
                 headers: {
                     'Authorization': `Bearer ${token}`,
@@ -103,7 +128,7 @@ const DashboardConfig = ({ dashboardId }) => {
                 throw new Error('Ошибка при сохранении дашборда');
             }
 
-            router.push('/dashboard');
+            router.push(`/dashboard/${dashboardId}`);
         } catch (error) {
             setError(error.message);
         }
