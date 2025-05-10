@@ -78,15 +78,19 @@ class DashboardCreate(BaseModel):
     name: str
     type: str
     widgets: List[dict]
+    id: Optional[str] = None  # Для UUID с фронтенда
+    uuid: Optional[str] = None  # Дополнительное поле для явного указания UUID
 
 class DashboardUpdate(BaseModel):
     widgets: List[dict]
+    name: Optional[str] = None  # Добавляем возможность обновления имени
 
 class Dashboard(BaseModel):
     id: str
     name: str
     type: str
     widgets: List[dict]
+    uuid: Optional[str] = None  # Добавляем поле UUID для совместимости
 
 class LoginRequest(BaseModel):
     email: str
@@ -312,17 +316,22 @@ async def get_dashboards(current_user: User = Depends(get_current_user)):
 
 @app.post("/dashboard", response_model=Dashboard)
 async def create_dashboard(dashboard: DashboardCreate, current_user: User = Depends(get_current_user)):
-    dashboard_id = str(datetime.now().timestamp())
+    # Используем UUID с фронтенда или генерируем новый на основе временной метки
+    dashboard_id = dashboard.id or dashboard.uuid or str(datetime.now().timestamp())
+    
     new_dashboard = {
         "id": dashboard_id,
         "name": dashboard.name,
         "type": dashboard.type,
-        "widgets": dashboard.widgets
+        "widgets": dashboard.widgets,
+        "uuid": dashboard.uuid or dashboard_id  # Сохраняем UUID для надежности
     }
+    
     await db.users.update_one(
         {"email": current_user.email},
         {"$push": {"dashboards": new_dashboard}}
     )
+    
     return new_dashboard
 
 @app.put("/dashboard/{dashboard_id}")
@@ -331,32 +340,83 @@ async def update_dashboard(
     dashboard_update: DashboardUpdate,
     current_user: User = Depends(get_current_user)
 ):
-    result = await db.users.update_one(
-        {
-            "email": current_user.email,
-            "dashboards.id": dashboard_id
-        },
-        {
-            "$set": {
-                "dashboards.$.widgets": dashboard_update.widgets
+    try:
+        print(f"Updating dashboard with ID: {dashboard_id}")
+        print(f"Update data: {dashboard_update.dict()}")
+        
+        update_fields = {"dashboards.$.widgets": dashboard_update.widgets}
+        
+        # Если передано имя, обновляем его
+        if dashboard_update.name is not None:
+            update_fields["dashboards.$.name"] = dashboard_update.name
+            print(f"Updating dashboard name to: {dashboard_update.name}")
+        
+        # Сначала ищем по ID
+        print(f"Trying to find dashboard by ID: {dashboard_id}")
+        result = await db.users.update_one(
+            {
+                "email": current_user.email,
+                "dashboards.id": dashboard_id
+            },
+            {
+                "$set": update_fields
             }
-        }
-    )
-    
-    if result.modified_count == 0:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Dashboard not found"
         )
-    
-    return {"message": "Dashboard updated"}
+        
+        if result.modified_count == 0:
+            # Пробуем найти по UUID, если не найдено по ID
+            print(f"Dashboard not found by ID, trying to find by UUID: {dashboard_id}")
+            result = await db.users.update_one(
+                {
+                    "email": current_user.email,
+                    "dashboards.uuid": dashboard_id
+                },
+                {
+                    "$set": update_fields
+                }
+            )
+            
+            if result.modified_count == 0:
+                print(f"Dashboard not found by UUID either")
+                # Получим список всех дашбордов пользователя для диагностики
+                user = await db.users.find_one({"email": current_user.email})
+                if user and 'dashboards' in user:
+                    print(f"User has {len(user['dashboards'])} dashboards:")
+                    for idx, d in enumerate(user['dashboards']):
+                        print(f"Dashboard {idx+1}: ID={d.get('id')}, UUID={d.get('uuid')}, Name={d.get('name')}")
+                
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=f"Dashboard not found with ID or UUID: {dashboard_id}"
+                )
+        
+        print(f"Dashboard updated successfully")
+        return {"message": "Dashboard updated"}
+    except Exception as e:
+        print(f"Error updating dashboard: {str(e)}")
+        raise
 
 @app.delete("/dashboard/{dashboard_id}")
 async def delete_dashboard(dashboard_id: str, current_user: User = Depends(get_current_user)):
-    await db.users.update_one(
+    # Пробуем удалить по ID
+    result = await db.users.update_one(
         {"email": current_user.email},
         {"$pull": {"dashboards": {"id": dashboard_id}}}
     )
+    
+    # Если дашборд не найден по ID, пробуем по UUID
+    if result.modified_count == 0:
+        result = await db.users.update_one(
+            {"email": current_user.email},
+            {"$pull": {"dashboards": {"uuid": dashboard_id}}}
+        )
+        
+        if result.modified_count == 0:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Dashboard not found"
+            )
+    
     return {"message": "Dashboard deleted"}
 
 @app.get("/profile", response_model=User)
