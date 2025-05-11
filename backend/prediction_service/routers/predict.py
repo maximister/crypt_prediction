@@ -65,10 +65,10 @@ async def predict_price(request: PredictionRequest):
         # Выбираем модель и делаем прогноз
         if request.model.lower() == "lstm":
             logger.debug("Используем модель LSTM")
-            predictions = lstm_model.forecast(prices)
+            predictions = lstm_model.forecast(prices, steps=request.days)
         else:  # arima по умолчанию
             logger.debug("Используем модель ARIMA")
-            predictions = arima_model.forecast(prices)
+            predictions = arima_model.forecast(prices, steps=request.days)
 
         # Получаем последнюю известную дату и создаем будущие даты
         last_date = historical_data[-1][0]
@@ -135,8 +135,22 @@ async def get_prediction_with_interval(
     elif interval == "30d":
         days = 30
         interval_type = "daily"
+    elif interval == "90d":
+        days = 90
+        interval_type = "daily"
+    elif interval == "365d":
+        days = 365
+        interval_type = "daily"
     else:
-        raise HTTPException(status_code=400, detail="Неподдерживаемый интервал. Используйте '1d', '7d' или '30d'")
+        # Попытка парсинга интервала в формате 'Nd'
+        try:
+            if interval.endswith('d'):
+                days = int(interval[:-1])
+                interval_type = "daily"
+            else:
+                raise ValueError("Неверный формат интервала")
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Неподдерживаемый интервал. Используйте формат 'Nd', например '1d', '7d', '30d', '90d' или '365d'")
 
     request = PredictionRequest(
         coin_id=coin_id,

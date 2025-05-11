@@ -261,7 +261,7 @@ async def predict_by_dates(
         else:
             m = ArimaModel()
         m.train(prices)
-        predictions = m.forecast(days_to_predict)
+        predictions = m.forecast(prices, steps=days_to_predict)
         # Формируем даты для прогноза
         last_known = int(datetime.combine(training_end, datetime.min.time()).timestamp() * 1000)
         prediction_timestamps = [

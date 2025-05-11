@@ -78,7 +78,7 @@ const CryptoDetails = () => {
   useEffect(() => {
     if (!id || !showPrediction) return;
     fetchPrediction();
-  }, [id, showPrediction]);
+  }, [id, showPrediction, selectedPeriod]);
 
   const fetchCurrencyInfo = async () => {
     if (!id) return;
@@ -315,11 +315,15 @@ const CryptoDetails = () => {
     if (!id) return;
     
     try {
-      const data = await cryptoDataService.getForecast(id, 30);
+      // Преобразуем выбранный период в числовую форму для запроса
+      const days = parseInt(selectedPeriod);
+      
+      // Запрашиваем прогноз на выбранное количество дней
+      const data = await cryptoDataService.getForecast(id, days);
       setPrediction(data);
     } catch (err) {
       console.error('Ошибка при загрузке прогноза:', err);
-      // ... остальной код обработки ошибок ...
+      // Мы не будем устанавливать значение по умолчанию, чтобы у пользователя была возможность повторить запрос
     }
   };
 

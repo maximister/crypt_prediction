@@ -65,12 +65,13 @@ class CryptoDataService {
 
   // Получить прогноз цены криптовалюты
   async getForecast(coinId, days = 7) {
-    // Преобразуем days в строку с суффиксом 'd' если это число
+    // Параметр days может быть числом или строкой
+    // Для бэкенда формируем строку с суффиксом 'd', если это число
     const daysParam = typeof days === 'number' ? `${days}d` : days;
     const cacheKey = `${coinId}_${daysParam}`;
     
     // Если данные в кэше не устарели, вернуть их
-    if (cache.forecasts[coinId] && !isCacheStale('forecasts', coinId)) {
+    if (cache.forecasts[coinId] && cache.forecasts[coinId].period === daysParam && !isCacheStale('forecasts', coinId)) {
       return cache.forecasts[coinId];
     }
 
@@ -81,6 +82,9 @@ class CryptoDataService {
       }
       
       const data = await response.json();
+      
+      // Добавляем период в данные кэша для возможности кэширования разных периодов
+      data.period = daysParam;
       
       // Обновить кэш
       cache.forecasts[coinId] = data;
@@ -103,7 +107,8 @@ class CryptoDataService {
         forecast: Array.from({ length: daysNumber }, (_, i) => ({
           datetime: new Date(Date.now() + i * 86400000).toISOString(),
           price: Math.random() * 10000 + 1000
-        }))
+        })),
+        period: daysParam
       };
       return mockForecast;
     }
@@ -198,7 +203,8 @@ class CryptoDataService {
 
   // Получить несколько прогнозов за один запрос
   async getForecasts(coinIds, days = 7) {
-    // Преобразуем days в строку с суффиксом 'd' если это число
+    // Параметр days может быть числом или строкой
+    // Для бэкенда формируем строку с суффиксом 'd', если это число
     const daysParam = typeof days === 'number' ? `${days}d` : days;
     
     if (!coinIds || coinIds.length === 0) {
@@ -210,7 +216,7 @@ class CryptoDataService {
 
     // Проверить кэш для каждой монеты
     coinIds.forEach(coinId => {
-      if (cache.forecasts[coinId] && !isCacheStale('forecasts', coinId)) {
+      if (cache.forecasts[coinId] && cache.forecasts[coinId].period === daysParam && !isCacheStale('forecasts', coinId)) {
         result[coinId] = cache.forecasts[coinId];
       } else {
         coinsToFetch.push(coinId);
@@ -247,7 +253,8 @@ class CryptoDataService {
             forecast: Array.from({ length: daysNumber }, (_, i) => ({
               datetime: new Date(Date.now() + i * 86400000).toISOString(),
               price: Math.random() * 10000 + 1000
-            }))
+            })),
+            period: daysParam
           };
         }
       });
@@ -311,7 +318,8 @@ class CryptoDataService {
 
   // Получить исторические данные о цене криптовалюты
   async getHistoricalData(coinId, days = 7) {
-    // Преобразуем days в строку с суффиксом 'd' если это число
+    // Параметр days может быть числом или строкой
+    // Для бэкенда формируем строку с суффиксом 'd', если это число
     const daysParam = typeof days === 'number' ? `${days}d` : days;
     const cacheKey = `${coinId}_${daysParam}`;
     
@@ -328,7 +336,8 @@ class CryptoDataService {
       
       const data = await response.json();
       
-      // Обновить кэш
+      // Добавляем период в данные и обновляем кэш
+      data.period = daysParam;
       cache.historical[cacheKey] = data;
       cache.lastUpdated.historical[cacheKey] = Date.now();
       
@@ -343,7 +352,8 @@ class CryptoDataService {
       
       // Генерируем фейковые данные для демонстрации
       const mockData = {
-        prices: []
+        prices: [],
+        period: daysParam
       };
       
       // Генерируем исторические данные

@@ -283,14 +283,14 @@ const PriceChart = ({
     // Вспомогательная функция для преобразования периода в количество дней
     const periodToDays = (period) => {
         switch(period) {
-            case '1d': return '1d';
-            case '7d': return '7d';
-            case '30d': return '30d';
-            case '90d': return '90d';
-            case '180d': return '180d';
-            case '365d': return '365d';
-            case 'max': return 'max';
-            default: return '7d';
+            case '1d': return 1;
+            case '7d': return 7;
+            case '30d': return 30;
+            case '90d': return 90;
+            case '180d': return 180;
+            case '365d': return 365;
+            case 'max': return 365; // Для 'max' используем 365 дней по умолчанию
+            default: return 7;
         }
     };
 
